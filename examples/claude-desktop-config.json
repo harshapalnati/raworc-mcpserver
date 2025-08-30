@@ -4,9 +4,9 @@
       "command": "npx",
       "args": ["@raworc/mcp-server"],
       "env": {
-        "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-        "RAWORC_AUTH_TOKEN": "your-auth-token-here",
-        "RAWORC_DEFAULT_SPACE": "default",
+        "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+        "RAWORC_AUTH_TOKEN": "your-jwt-token-here",
+        "RAWORC_DEFAULT_SPACE": "your-space-name",
         "RAWORC_TIMEOUT": "30",
         "LOG_LEVEL": "info"
       }

@@ -1,86 +1,76 @@
-# Raworc MCP Server - Quick Start Guide
+# Quick Start Guide
 
-This guide will help you install and use the Raworc MCP server in just a few minutes.
+Get up and running with the Raworc MCP Server in minutes!
 
 ## Prerequisites
 
-- **Node.js** (version 16.0.0 or higher)
-- **Rust** (version 1.70.0 or higher) - for building the binary
-- **Raworc Account** - you need credentials for the Raworc platform
+- **Rust**: Version 1.70 or higher (for source builds)
+- **Node.js**: Version 16.0 or higher (for npx installation)
+- **Raworc Account**: Access to Raworc platform
+- **Network Access**: Ability to reach `api.remoteagent.com`
 
-## Step 1: Install the MCP Server
+## Option 1: Install via npx (Recommended)
 
-### Option A: Quick Install (Recommended)
+### Step 1: Test the Installation
 
 ```bash
-# Install and run directly with npx
+# Test that npx can run the server
 npx @raworc/mcp-server --help
 ```
 
-This will automatically download, build, and run the MCP server. No permanent installation needed!
+### Step 2: Get Your Authentication Token
 
-### Option B: Global Installation
-
-```bash
-# Install globally for repeated use
-npm install -g @raworc/mcp-server
-
-# Verify installation
-raworc-mcp --help
-```
-
-## Step 2: Get Your Authentication Token
-
-You need a token to authenticate with the Raworc platform:
+First, you need to authenticate with Raworc and get a JWT token:
 
 ```bash
-# Get your auth token
-curl -X POST http://raworc.remoteagent.com:9000/api/v0/auth/login \
+curl -X POST https://api.remoteagent.com/api/v0/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"user": "your-username", "pass": "your-password"}'
+  -d '{
+    "user": "your-username",
+    "pass": "your-password"
+  }'
 ```
 
-**Example Response:**
+Response:
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expires_at": "2024-12-31T23:59:59Z"
+  "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "token_type": "Bearer",
+  "expires_at": "2024-01-15T11:30:00Z"
 }
 ```
 
-Copy the `token` value - you'll need it for the next steps.
+Save the token for the next steps.
 
-## Step 3: Test the MCP Server
-
-### Quick Test (No Auth Token Required)
-
-First, test that the installation works:
+### Step 3: Test the MCP Server
 
 ```bash
-# Test the installation
-node examples/test-installation.js
+# Set your authentication token
+export RAWORC_AUTH_TOKEN="your-jwt-token"
 
-# Or test manually
-npx @raworc/mcp-server --help
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
 ```
 
-### Full Test (Requires Auth Token)
-
-Once you have your auth token, test the full functionality:
-
-```bash
-# Test with npx
-npx @raworc/mcp-server --auth-token YOUR_TOKEN_HERE --log-level debug
-
-# Or if installed globally
-raworc-mcp --auth-token YOUR_TOKEN_HERE --log-level debug
+Expected response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": ""
+      }
+    ]
+  }
+}
 ```
 
-You should see initialization messages and the server should start successfully.
+### Step 4: Configure Claude Desktop
 
-## Step 4: Configure Claude Desktop
-
-Add this configuration to your Claude Desktop settings:
+Add the MCP server to your Claude Desktop configuration:
 
 ```json
 {
@@ -89,139 +79,122 @@ Add this configuration to your Claude Desktop settings:
       "command": "npx",
       "args": ["@raworc/mcp-server"],
       "env": {
-        "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-        "RAWORC_AUTH_TOKEN": "YOUR_TOKEN_HERE"
+        "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+        "RAWORC_AUTH_TOKEN": "your-jwt-token",
+        "RAWORC_DEFAULT_SPACE": "your-space",
+        "RAWORC_TIMEOUT": "30",
+        "LOG_LEVEL": "info"
       }
     }
   }
 }
 ```
 
-**Important:** Replace `YOUR_TOKEN_HERE` with the actual token you got in Step 2.
+### Step 5: Test with Claude Desktop
 
-## Step 5: Use in Claude Desktop
+Restart Claude Desktop and test the integration:
 
-1. **Restart Claude Desktop** to load the new configuration
-2. **Test the connection** by typing:
-   ```
-   @raworc health_check
-   ```
-3. **Try other commands**:
-   ```
-   @raworc list_spaces
-   @raworc list_sessions
-   @raworc create_session
-   ```
-
-## Common Commands
-
-### Session Management
-```
-@raworc list_sessions
-@raworc create_session
-@raworc send_message
-@raworc get_messages
-@raworc pause_session
-@raworc resume_session
-@raworc terminate_session
-```
-
-### Space and Agent Management
-```
-@raworc list_spaces
-@raworc list_agents
-@raworc get_agent_logs
-```
-
-### Secret Management
-```
-@raworc list_secrets
-@raworc set_secret
-@raworc get_secret
-@raworc delete_secret
-```
-
-### System Information
 ```
 @raworc health_check
+@raworc list_spaces
 @raworc get_version
+```
+
+## Option 2: Install from Source
+
+### Step 1: Clone and Build
+
+```bash
+# Clone the repository
+git clone https://github.com/harshapalnati/raworc-mcpserver.git
+cd raworc-mcpserver
+
+# Build the release version
+cargo build --release
+```
+
+### Step 2: Get Authentication Token
+
+Follow the same authentication steps as above.
+
+### Step 3: Test the Installation
+
+```bash
+# Set your authentication token
+export RAWORC_AUTH_TOKEN="your-jwt-token"
+
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | ./target/release/raworc-mcp
+```
+
+### Step 4: Configure Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "raworc": {
+      "command": "/path/to/raworc-mcpserver/target/release/raworc-mcp",
+      "env": {
+        "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+        "RAWORC_AUTH_TOKEN": "your-jwt-token",
+        "RAWORC_DEFAULT_SPACE": "your-space",
+        "RAWORC_TIMEOUT": "30",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}
 ```
 
 ## Troubleshooting
 
-### "Command not found" Error
-```bash
-# Make sure Node.js is installed
-node --version
+### Common Issues
 
-# Try installing globally
-npm install -g @raworc/mcp-server
-```
+1. **Authentication Failed**
+   - Verify your username and password
+   - Check that your token hasn't expired
+   - Ensure you have the correct permissions
 
-### "Authentication failed" Error
-- Check your username and password
-- Make sure your Raworc account is active
-- Verify the API URL is correct: `http://raworc.remoteagent.com:9000/api/v0`
+2. **Connection Issues**
+   - Verify you can reach `api.remoteagent.com`
+   - Check your network connectivity
+   - Try accessing the web UI first: `https://api.remoteagent.com`
 
-### "Binary not found" Error
-```bash
-# The package needs to build the Rust binary
-# This should happen automatically, but you can force it:
-npm install -g @raworc/mcp-server
-```
+3. **Permission Errors**
+   - Ensure your account has the necessary permissions
+   - Check that you're using the correct space
 
-### "Network error" Error
-- Check your internet connection
-- Verify you can reach `raworc.remoteagent.com:9000`
-- Try accessing the web UI first: `http://raworc.remoteagent.com:9000`
+### Debug Mode
 
-## Environment Variables
-
-You can also configure the server using environment variables:
+Enable debug logging:
 
 ```bash
-export RAWORC_API_URL="http://raworc.remoteagent.com:9000/api/v0"
-export RAWORC_AUTH_TOKEN="your-token-here"
-export RAWORC_DEFAULT_SPACE="default"
-export RAWORC_TIMEOUT="30"
-export LOG_LEVEL="info"
+export LOG_LEVEL="debug"
+export RAWORC_API_URL="https://api.remoteagent.com/api/v0"
+export RAWORC_AUTH_TOKEN="your-token"
+npx @raworc/mcp-server
 ```
 
-## Advanced Usage
+### Manual Testing
 
-### Command Line Testing
+Test individual endpoints:
+
 ```bash
-# Test individual commands
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | raworc-mcp --auth-token your-token
+# Health check
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/health
 
-# Test with custom configuration
-raworc-mcp --auth-token your-token --default-space production --timeout 60 --log-level debug
+# List spaces
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/spaces
+
+# Get version
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/version
 ```
-
-### Custom Configuration
-```bash
-# Use a different API URL
-raworc-mcp --api-url https://custom-raworc-instance.com/api/v0 --auth-token your-token
-
-# Use username/password instead of token
-raworc-mcp --username your-username --password your-password
-```
-
-## Need Help?
-
-- **Documentation**: [README.md](README.md)
-- **Testing Guide**: [TESTING.md](TESTING.md)
-- **Raworc API Docs**: [https://raworc.com/docs/api/rest-api](https://raworc.com/docs/api/rest-api)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/raworc-mcp/issues)
 
 ## Next Steps
 
-Once you have the basic setup working:
+- **Create Sessions**: Start working with Raworc sessions
+- **Manage Agents**: Deploy and monitor agents
+- **Handle Secrets**: Store and retrieve sensitive data
+- **Explore Spaces**: Organize your work with spaces
 
-1. **Explore the available tools** - try different commands
-2. **Set up your spaces and sessions** - organize your work
-3. **Configure secrets** - store sensitive data securely
-4. **Monitor agents** - track your agent performance
-5. **Integrate with your workflow** - use the MCP server in your daily tasks
-
-Happy coding! 🚀
+For detailed API documentation, see the [Raworc API Reference](https://raworc.com/docs/api/rest-api).

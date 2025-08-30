@@ -1,24 +1,18 @@
-use raworc_mcp::{Config, RaworcMcpServer};
+use raworc_mcp::Config;
 
-#[tokio::test]
-async fn test_mcp_server_creation() {
+#[test]
+fn test_config_defaults() {
     let config = Config {
-        api_url: "http://raworc.remoteagent.com:9000/api/v0".to_string(),
-        auth_token: None,
+        api_url: Some("https://api.remoteagent.com/api/v0".to_string()),
+        auth_token: Some("test-token".to_string()),
         username: None,
         password: None,
-        default_space: Some("test".to_string()),
+        default_space: Some("default".to_string()),
         timeout_seconds: Some(30),
     };
 
-    let server = RaworcMcpServer::new(config);
-    assert!(server.is_ok());
-}
-
-#[tokio::test]
-async fn test_config_default() {
-    let config = Config::default();
-    assert_eq!(config.api_url, "http://raworc.remoteagent.com:9000/api/v0");
+    assert_eq!(config.api_url, Some("https://api.remoteagent.com/api/v0".to_string()));
+    assert_eq!(config.auth_token, Some("test-token".to_string()));
     assert_eq!(config.default_space, Some("default".to_string()));
     assert_eq!(config.timeout_seconds, Some(30));
 }

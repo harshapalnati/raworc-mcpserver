@@ -1,287 +1,294 @@
 
-# Raworc MCP Server Testing Guide
+# Testing Guide
 
-This guide will help you get a real auth token and test the Raworc MCP server with actual data.
+This guide covers testing the Raworc MCP Server to ensure it's working correctly in production.
 
 ## Prerequisites
 
-1. **Raworc Account**: You need a valid account on the Raworc cloud platform
-2. **Rust**: Version 1.70.0 or higher
-3. **Network Access**: Ability to reach `raworc.remoteagent.com:9000`
+1. **Rust Environment**: Version 1.70 or higher (for source builds)
+2. **Node.js**: Version 16.0 or higher (for npx testing)
+3. **Network Access**: Ability to reach `api.remoteagent.com`
+4. **Authentication**: Valid Raworc credentials
 
-## Step 1: Get Your Auth Token
+## Quick Test
 
-### Option A: Using curl to get your auth token
-
-You can get your auth token using curl:
+### Option 1: Test with npx (Recommended)
 
 ```bash
-# Authenticate and get token
-curl -X POST http://raworc.remoteagent.com:9000/api/v0/auth/login \
+# Test the installation
+npx @raworc/mcp-server --help
+
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
+
+# Test list spaces
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | npx @raworc/mcp-server
+```
+
+### Option 2: Test from Source
+
+```bash
+# Build the project
+cargo build --release
+
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | ./target/release/raworc-mcp
+
+# Test list spaces
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | ./target/release/raworc-mcp
+```
+
+## Step-by-Step Testing
+
+### Step 1: Get Authentication Token
+
+```bash
+curl -X POST https://api.remoteagent.com/api/v0/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"user": "your-username", "pass": "your-password"}'
-
-# The response will contain your auth token
+  -d '{
+    "user": "your-username",
+    "pass": "your-password"
+  }'
 ```
 
-### Option B: Manual Authentication
-
-If you prefer to get the token manually:
+### Step 2: Set Environment Variables
 
 ```bash
-# Using curl
-curl -X POST http://raworc.remoteagent.com:9000/api/v0/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"user": "your-username", "pass": "your-password"}'
-
-# Or using the MCP server directly
-raworc-mcp --username your-username --password your-password --log-level debug
+export RAWORC_AUTH_TOKEN="your-jwt-token"
+export RAWORC_API_URL="https://api.remoteagent.com/api/v0"
 ```
 
-### Option C: Web UI
-
-1. Go to `http://raworc.remoteagent.com:9000` in your browser
-2. Log in with your credentials
-3. Look for API tokens in your account settings or developer section
-
-## Step 2: Test the MCP Server
-
-### Basic Testing
+### Step 3: Test Basic Functionality
 
 ```bash
-# Set your auth token
-export RAWORC_AUTH_TOKEN="your-actual-token-here"
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
 
-# Test the MCP server
-raworc-mcp --log-level debug
+# Test get version
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_version", "arguments": {}}}' | npx @raworc/mcp-server
+
+# Test list spaces
+echo '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | npx @raworc/mcp-server
 ```
 
-### Testing Individual Tools
+## Manual API Testing
 
-You can test the MCP server by sending JSON-RPC messages to it. Here's how:
+Before testing the MCP server, verify the API endpoints directly:
 
 ```bash
-# Start the MCP server in one terminal
-raworc-mcp --auth-token your-token --log-level debug
+# Health check
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/health
 
-# In another terminal, send test messages
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | raworc-mcp --auth-token your-token
+# Get version
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/version
+
+# List spaces
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/spaces
 ```
 
-### Testing with Real Data
+## MCP Protocol Testing
 
-Once you have a valid token, you can test all the available tools:
+### Test Individual Tools
 
-#### 1. Health Check
 ```bash
-# Test API health
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | raworc-mcp --auth-token your-token
+# Health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
+
+# List spaces
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | npx @raworc/mcp-server
+
+# Get version
+echo '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_version", "arguments": {}}}' | npx @raworc/mcp-server
+
+# List sessions
+echo '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_sessions", "arguments": {"space": "default"}}}' | npx @raworc/mcp-server
 ```
 
-#### 2. List Spaces
+### Test MCP Handshake
+
 ```bash
-# List available spaces
-echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | raworc-mcp --auth-token your-token
+# Initialize
+echo '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test-client", "version": "1.0.0"}}}' | npx @raworc/mcp-server
+
+# List tools
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}' | npx @raworc/mcp-server
 ```
 
-#### 3. Create a Session
-```bash
-# Create a new session
-echo '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "create_session", "arguments": {"space": "default", "metadata": {"purpose": "testing"}}}}' | raworc-mcp --auth-token your-token
-```
-
-#### 4. List Sessions
-```bash
-# List sessions in a space
-echo '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_sessions", "arguments": {"space": "default"}}}' | raworc-mcp --auth-token your-token
-```
-
-#### 5. Send a Message
-```bash
-# Send a message to a session (replace SESSION_ID with actual ID)
-echo '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "send_message", "arguments": {"session_id": "SESSION_ID", "content": "Hello from MCP server!"}}}' | raworc-mcp --auth-token your-token
-```
-
-#### 6. List Agents
-```bash
-# List agents in a space
-echo '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "list_agents", "arguments": {"space": "default"}}}' | raworc-mcp --auth-token your-token
-```
-
-#### 7. Manage Secrets
-```bash
-# Set a secret
-echo '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "set_secret", "arguments": {"space": "default", "key": "test-key", "value": "test-value"}}}' | raworc-mcp --auth-token your-token
-
-# Get the secret
-echo '{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "get_secret", "arguments": {"space": "default", "key": "test-key"}}}' | raworc-mcp --auth-token your-token
-
-# List secrets
-echo '{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "list_secrets", "arguments": {"space": "default"}}}' | raworc-mcp --auth-token your-token
-```
-
-## Step 3: Integration Testing
+## Integration Testing
 
 ### Test with Claude Desktop
 
-1. **Install the MCP server**:
-    ```bash
-    # Option A: Using npx (recommended)
-    npx @raworc/mcp-server --help
-    
-    # Option B: Clone and install
-    git clone https://github.com/yourusername/raworc-mcp.git
-    cd raworc-mcp
-    npm install
-    ```
+1. **Configure Claude Desktop**:
+   ```json
+   {
+     "mcpServers": {
+       "raworc": {
+         "command": "npx",
+         "args": ["@raworc/mcp-server"],
+         "env": {
+           "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+           "RAWORC_AUTH_TOKEN": "your-jwt-token",
+           "RAWORC_DEFAULT_SPACE": "your-space",
+           "RAWORC_TIMEOUT": "30",
+           "LOG_LEVEL": "info"
+         }
+       }
+     }
+   }
+   ```
 
-2. **Configure Claude Desktop**:
-    Add this to your Claude Desktop configuration:
-    ```json
-    {
-      "mcpServers": {
-        "raworc": {
-          "command": "npx",
-          "args": ["@raworc/mcp-server"],
-          "env": {
-            "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-            "RAWORC_AUTH_TOKEN": "your-actual-token-here"
-          }
-        }
-      }
-    }
-    ```
+2. **Test Commands**:
+   ```
+   @raworc health_check
+   @raworc list_spaces
+   @raworc get_version
+   @raworc list_sessions
+   ```
 
-3. **Test in Claude Desktop**:
-   - Restart Claude Desktop
-   - Try commands like: `@raworc health_check`, `@raworc list_sessions`
+## Automated Testing
 
-### Test with Other MCP Clients
+### Run Test Suite
 
-You can test with any MCP-compatible client by configuring it to use the `raworc-mcp` command with your auth token.
+```bash
+# Run all tests
+cargo test
 
-## Step 4: Debugging
+# Run specific test
+cargo test test_health_check
+
+# Run with output
+cargo test -- --nocapture
+```
+
+### Integration Tests
+
+```bash
+# Run integration tests
+cargo test --test integration_test
+```
+
+## Debugging
 
 ### Enable Debug Logging
 
 ```bash
-# Run with debug logging
-raworc-mcp --auth-token your-token --log-level debug
-```
-
-### Check Network Connectivity
-
-```bash
-# Test if you can reach the Raworc API
-curl -I http://raworc.remoteagent.com:9000/api/v0/health
+export LOG_LEVEL="debug"
+export RAWORC_API_URL="https://api.remoteagent.com/api/v0"
+export RAWORC_AUTH_TOKEN="your-token"
+npx @raworc/mcp-server
 ```
 
 ### Common Issues
 
-1. **Authentication Failed**:
-   - Check your username and password
-   - Ensure your account is active
-   - Verify the API URL is correct
+1. **Authentication Errors**
+   - Verify token is valid and not expired
+   - Check username/password credentials
+   - Ensure proper permissions
 
-2. **Network Issues**:
-   - Check your internet connection
-   - Verify firewall settings
-   - Try accessing the web UI first
+2. **Network Errors**
+   - Verify connectivity to `api.remoteagent.com`
+   - Check firewall settings
+   - Try accessing web UI first
 
-3. **Token Expired**:
-   - Get a new token using the auth script
-   - Tokens typically expire after a certain time
+3. **MCP Protocol Errors**
+   - Check JSON-RPC message format
+   - Verify tool names match exactly
+   - Ensure proper error handling
 
-4. **Permission Issues**:
-   - Ensure your account has the necessary permissions
-   - Check if you can access the spaces you're trying to use
+### Troubleshooting Steps
 
-## Step 5: Performance Testing
+1. **Check API Connectivity**:
+   ```bash
+   curl -I https://api.remoteagent.com/api/v0/health
+   ```
+
+2. **Verify Authentication**:
+   ```bash
+   curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/auth/me
+   ```
+
+3. **Test Individual Endpoints**:
+   ```bash
+   curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/spaces
+   curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/sessions
+   ```
+
+## Performance Testing
 
 ### Load Testing
 
 ```bash
 # Test multiple concurrent requests
 for i in {1..10}; do
-  echo '{"jsonrpc": "2.0", "id": '$i', "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | raworc-mcp --auth-token your-token &
+  echo '{"jsonrpc": "2.0", "id": '$i', "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server &
 done
 wait
 ```
 
-### Memory and CPU Monitoring
+### Memory Usage
 
 ```bash
-# Monitor the MCP server process
-top -p $(pgrep raworc-mcp)
+# Monitor memory usage (for source builds)
+valgrind --tool=massif ./target/release/raworc-mcp
 ```
 
-## Step 6: Real-World Testing Scenarios
+## Security Testing
 
-### Scenario 1: Session Management Workflow
+### Token Validation
 
-1. Create a session
-2. Send multiple messages
-3. Get message history
-4. Pause/resume the session
-5. Terminate the session
+```bash
+# Test with invalid token
+export RAWORC_AUTH_TOKEN="invalid-token"
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
+```
 
-### Scenario 2: Agent Monitoring
+### Input Validation
 
-1. List agents in a space
-2. Get agent logs
-3. Monitor agent status changes
+```bash
+# Test with malformed JSON
+echo '{"invalid": "json"' | npx @raworc/mcp-server
 
-### Scenario 3: Secret Management
+# Test with missing required fields
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_session", "arguments": {}}}' | npx @raworc/mcp-server
+```
 
-1. Set multiple secrets
-2. Retrieve secrets
-3. Update secret values
-4. Delete secrets
+## Continuous Integration
 
-## Troubleshooting
+### GitHub Actions Example
 
-### Log Analysis
+```yaml
+name: Test MCP Server
 
-The MCP server provides detailed logs. Look for:
-- Authentication success/failure messages
-- API request/response details
-- Error messages with status codes
-- Network connection issues
+on: [push, pull_request]
 
-### Error Codes
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: cargo test
+      - run: cargo build --release
+      - name: Test npx installation
+        run: |
+          npm install
+          npx @raworc/mcp-server --help
+```
 
-Common HTTP status codes:
-- `200`: Success
-- `401`: Unauthorized (invalid token)
-- `403`: Forbidden (insufficient permissions)
-- `404`: Not found
-- `500`: Internal server error
+## Reporting Issues
 
-### Getting Help
+When reporting issues, include:
 
-If you encounter issues:
-1. Check the logs with `--log-level debug`
-2. Verify your auth token is valid
-3. Test API connectivity directly
-4. Check the Raworc documentation
-5. Open an issue on the GitHub repository
+1. **Environment**: OS, Rust version, Node.js version, Raworc version
+2. **Configuration**: API URL, authentication method
+3. **Error Messages**: Full error output and logs
+4. **Steps to Reproduce**: Detailed reproduction steps
+5. **Expected vs Actual**: What you expected vs what happened
 
-## Security Notes
+## Support
 
-- **Never commit auth tokens** to version control
-- **Use environment variables** for sensitive data
-- **Rotate tokens regularly** for production use
-- **Monitor token usage** for security
-- **Use HTTPS** for all API communications
-
-## Next Steps
-
-Once you've successfully tested the MCP server:
-
-1. **Deploy to production** if needed
-2. **Set up monitoring** for the MCP server
-3. **Configure automated testing** in your CI/CD pipeline
-4. **Document your specific use cases**
-5. **Contribute improvements** to the project
-
-Happy testing! 🚀
+- **Documentation**: [Raworc API Docs](https://raworc.com/docs/api/rest-api)
+- **Issues**: [GitHub Issues](https://github.com/harshapalnati/raworc-mcpserver/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/harshapalnati/raworc-mcpserver/discussions)

@@ -1,6 +1,12 @@
-use crate::error::{RaworcError, RaworcResult, ApiErrorResponse};
+//! Raworc Cloud API client
+//! - Default base URL: https://api.remoteagent.com/api/v0
+//! - Space-scoped routes for sessions/agents/secrets/builds
+//! - Uniform Bearer auth + small 401 -> re-auth -> retry safeguard
+
+use crate::error::{ApiErrorResponse, RaworcError, RaworcResult};
 use crate::models::*;
-use reqwest::Client;
+use reqwest::{header, Client};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -8,503 +14,535 @@ use url::Url;
 
 /// Raworc API client
 pub struct RaworcClient {
-    client: Client,
+    http: Client,
     base_url: Url,
+    /// If set, used for Authorization: Bearer <token>
     auth_token: Option<String>,
+    /// Default space used when a method allows `space: Option<&str>`
     default_space: Option<String>,
+    /// Optional username/password for auto re-auth
+    username: Option<String>,
+    password: Option<String>,
+    /// per-request timeout (seconds)
+    timeout: u64,
 }
 
 impl RaworcClient {
-    /// Create a new Raworc client
+    /// Create a new client from your config.
+    ///
+    /// Expected `crate::Config` fields:
+    /// - api_url (string) e.g., "https://api.remoteagent.com/api/v0"
+    /// - auth_token (optional)
+    /// - default_space (optional)
+    /// - username/password (optional; used for authenticate() and 401 retry)
+    /// - timeout_seconds (optional; default 30)
     pub fn new(config: &crate::Config) -> RaworcResult<Self> {
-        let base_url = Url::parse(&config.api_url)
-            .map_err(|e| RaworcError::ConfigError(format!("Invalid API URL: {}", e)))?;
+        // Default to cloud API if not provided
+        let base_url = Url::parse(
+            config
+                .api_url
+                .as_ref()
+                .map_or("https://api.remoteagent.com/api/v0", |v| v),
+        )
+        .map_err(|e| RaworcError::ConfigError(format!("Invalid API URL: {}", e)))?;
 
-        let timeout = Duration::from_secs(config.timeout_seconds.unwrap_or(30));
-        let client = Client::builder()
-            .timeout(timeout)
+        let timeout = config.timeout_seconds.unwrap_or(30);
+        let http = Client::builder()
+            .timeout(Duration::from_secs(timeout))
             .build()
             .map_err(|e| RaworcError::ConfigError(format!("Failed to create HTTP client: {}", e)))?;
 
         Ok(Self {
-            client,
+            http,
             base_url,
             auth_token: config.auth_token.clone(),
             default_space: config.default_space.clone(),
+            username: config.username.clone(),
+            password: config.password.clone(),
+            timeout,
         })
     }
 
-    /// Authenticate with username and password
+    /// Manually set/replace the bearer token (useful if you persist it)
+    pub fn set_token(&mut self, token: impl Into<String>) {
+        self.auth_token = Some(token.into());
+    }
+
+    /// Authenticate with username and password; stores the token internally.
     pub async fn authenticate(&mut self, username: &str, password: &str) -> RaworcResult<()> {
-        let auth_request = AuthRequest {
+        #[derive(Serialize)]
+        struct AuthRequest {
+            user: String,
+            pass: String,
+        }
+        #[derive(Deserialize)]
+        struct AuthResponseWire {
+            token: String,
+        }
+
+        let req = AuthRequest {
             user: username.to_string(),
             pass: password.to_string(),
         };
 
-        let response: AuthResponse = self
-            .post("/auth/login", &auth_request)
-            .await?;
-
-        self.auth_token = Some(response.token);
+        let auth: AuthResponseWire = self.post_json("auth/login", &req).await?;
+        self.auth_token = Some(auth.token);
         Ok(())
     }
 
-    /// Get current user info
+    /// Get current user info (auth required)
     pub async fn get_user_info(&self) -> RaworcResult<UserInfo> {
-        self.get("/auth/me").await
+        self.get_json("auth/me").await
     }
 
-    /// Check API health
+    /// Health (often public)
     pub async fn health_check(&self) -> RaworcResult<String> {
-        let response = self.client.get(self.build_url("/health")).send().await?;
-        response.text().await.map_err(RaworcError::from)
+        let res = self.http.get(self.build_url("health")).send().await?;
+        Ok(res.text().await.unwrap_or_default())
     }
 
-    /// Get API version
+    /// Version (public)
     pub async fn get_version(&self) -> RaworcResult<VersionResponse> {
-        self.get("/version").await
+        self.get_json("version").await
     }
 
-    // Session management
-    /// List sessions
+    /* ------------------------- Spaces (org/global) ------------------------- */
+
+    pub async fn list_spaces(&self) -> RaworcResult<Vec<Space>> {
+        self.get_json("spaces").await
+    }
+
+    pub async fn create_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
+        let req = CreateSpaceRequest {
+            name: name.to_string(),
+            description: description.map(|s| s.to_string()),
+        };
+        self.post_json("spaces", &req).await
+    }
+
+    pub async fn get_space(&self, name: &str) -> RaworcResult<Space> {
+        self.get_json(&format!("spaces/{}", name)).await
+    }
+
+    pub async fn update_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
+        let req = UpdateSpaceRequest {
+            description: description.map(|s| s.to_string()),
+        };
+        self.put_json(&format!("spaces/{}", name), &req).await
+    }
+
+    pub async fn delete_space(&self, name: &str) -> RaworcResult<()> {
+        self.delete_req(&format!("spaces/{}", name)).await
+    }
+
+    /* ----------------------- Sessions (space-scoped) ----------------------- */
+
     pub async fn list_sessions(&self, space: Option<&str>) -> RaworcResult<Vec<Session>> {
-        let space = space.unwrap_or_else(|| self.default_space.as_deref().unwrap_or("default"));
-        let url = format!("/sessions?space={}", space);
-        self.get(&url).await
+        let sp = self.space(space);
+        self.get_json(&format!("spaces/{}/sessions", sp)).await
     }
 
-    /// Create a new session
     pub async fn create_session(
         &self,
         space: Option<&str>,
         metadata: Option<HashMap<String, Value>>,
     ) -> RaworcResult<Session> {
-        let space = space.unwrap_or_else(|| self.default_space.as_deref().unwrap_or("default"));
-        let request = CreateSessionRequest {
-            space: Some(space.to_string()),
+        let sp = self.space(space);
+        let req = CreateSessionRequest {
+            // Space is implied by path in cloud API; keep None in body
+            space: None,
             metadata,
         };
-        self.post("/sessions", &request).await
+        self.post_json(&format!("spaces/{}/sessions", sp), &req).await
     }
 
-    /// Get session by ID
-    pub async fn get_session(&self, session_id: &str) -> RaworcResult<Session> {
-        let url = format!("/sessions/{}", session_id);
-        self.get(&url).await
+    pub async fn get_session(&self, space: Option<&str>, session_id: &str) -> RaworcResult<Session> {
+        let sp = self.space(space);
+        self.get_json(&format!("spaces/{}/sessions/{}", sp, session_id))
+            .await
     }
 
-    /// Update session
     pub async fn update_session(
         &self,
+        space: Option<&str>,
         session_id: &str,
         request: &UpdateSessionRequest,
     ) -> RaworcResult<Session> {
-        let url = format!("/sessions/{}", session_id);
-        self.put(&url, request).await
+        let sp = self.space(space);
+        self.put_json(&format!("spaces/{}/sessions/{}", sp, session_id), request)
+            .await
     }
 
-    /// Update session state
     pub async fn update_session_state(
         &self,
+        space: Option<&str>,
         session_id: &str,
         state: SessionState,
     ) -> RaworcResult<()> {
-        let url = format!("/sessions/{}/state", session_id);
-        let request = UpdateSessionStateRequest { state };
-        self.put::<_, ()>(&url, &request).await?;
-        Ok(())
+        let sp = self.space(space);
+        let req = UpdateSessionStateRequest { state };
+        self.put_json::<_, ()>(&format!("spaces/{}/sessions/{}/state", sp, session_id), &req)
+            .await
     }
 
-    /// Pause session
-    pub async fn pause_session(&self, session_id: &str) -> RaworcResult<()> {
-        let url = format!("/sessions/{}/pause", session_id);
-        self.post::<_, ()>(&url, &()).await?;
-        Ok(())
+    pub async fn pause_session(&self, space: Option<&str>, session_id: &str) -> RaworcResult<()> {
+        let sp = self.space(space);
+        self.post_json::<_, ()>(&format!("spaces/{}/sessions/{}/pause", sp, session_id), &())
+            .await
     }
 
-    /// Resume session
-    pub async fn resume_session(&self, session_id: &str) -> RaworcResult<()> {
-        let url = format!("/sessions/{}/resume", session_id);
-        self.post::<_, ()>(&url, &()).await?;
-        Ok(())
+    pub async fn resume_session(&self, space: Option<&str>, session_id: &str) -> RaworcResult<()> {
+        let sp = self.space(space);
+        self.post_json::<_, ()>(&format!("spaces/{}/sessions/{}/resume", sp, session_id), &())
+            .await
     }
 
-    /// Terminate session
-    pub async fn terminate_session(&self, session_id: &str) -> RaworcResult<()> {
-        let url = format!("/sessions/{}", session_id);
-        self.delete(&url).await?;
-        Ok(())
+    pub async fn terminate_session(&self, space: Option<&str>, session_id: &str) -> RaworcResult<()> {
+        let sp = self.space(space);
+        self.delete_req(&format!("spaces/{}/sessions/{}", sp, session_id))
+            .await
     }
 
-    // Message management
-    /// Get messages from session
+    /* ----------------------- Messages (space+session) ---------------------- */
+
     pub async fn get_messages(
         &self,
+        space: Option<&str>,
         session_id: &str,
         limit: Option<u64>,
     ) -> RaworcResult<Vec<Message>> {
-        let mut url = format!("/sessions/{}/messages", session_id);
-        if let Some(limit) = limit {
-            url.push_str(&format!("?limit={}", limit));
+        let sp = self.space(space);
+        let mut path = format!("spaces/{}/sessions/{}/messages", sp, session_id);
+        if let Some(n) = limit {
+            path.push_str(&format!("?limit={}", n));
         }
-        self.get(&url).await
+        self.get_json(&path).await
     }
 
-    /// Send message to session
-    pub async fn send_message(&self, session_id: &str, content: &str) -> RaworcResult<Message> {
-        let url = format!("/sessions/{}/messages", session_id);
-        let request = CreateMessageRequest {
+    pub async fn send_message(
+        &self,
+        space: Option<&str>,
+        session_id: &str,
+        content: &str,
+    ) -> RaworcResult<Message> {
+        let sp = self.space(space);
+        let req = CreateMessageRequest {
             content: content.to_string(),
         };
-        self.post(&url, &request).await
+        self.post_json(&format!("spaces/{}/sessions/{}/messages", sp, session_id), &req)
+            .await
     }
 
-    /// Get message count
-    pub async fn get_message_count(&self, session_id: &str) -> RaworcResult<MessageCount> {
-        let url = format!("/sessions/{}/messages/count", session_id);
-        self.get(&url).await
+    pub async fn get_message_count(
+        &self,
+        space: Option<&str>,
+        session_id: &str,
+    ) -> RaworcResult<MessageCount> {
+        let sp = self.space(space);
+        self.get_json(&format!("spaces/{}/sessions/{}/messages/count", sp, session_id))
+            .await
     }
 
-    /// Clear session messages
-    pub async fn clear_messages(&self, session_id: &str) -> RaworcResult<()> {
-        let url = format!("/sessions/{}/messages", session_id);
-        self.delete(&url).await?;
-        Ok(())
+    pub async fn clear_messages(&self, space: Option<&str>, session_id: &str) -> RaworcResult<()> {
+        let sp = self.space(space);
+        self.delete_req(&format!("spaces/{}/sessions/{}/messages", sp, session_id))
+            .await
     }
 
-    // Space management
-    /// List spaces
-    pub async fn list_spaces(&self) -> RaworcResult<Vec<Space>> {
-        self.get("/spaces").await
-    }
+    /* ------------------------- Agents (space-scoped) ----------------------- */
 
-    /// Create space
-    pub async fn create_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
-        let request = CreateSpaceRequest {
-            name: name.to_string(),
-            description: description.map(|s| s.to_string()),
-        };
-        self.post("/spaces", &request).await
-    }
-
-    /// Get space by name
-    pub async fn get_space(&self, name: &str) -> RaworcResult<Space> {
-        let url = format!("/spaces/{}", name);
-        self.get(&url).await
-    }
-
-    /// Update space
-    pub async fn update_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
-        let url = format!("/spaces/{}", name);
-        let request = UpdateSpaceRequest {
-            description: description.map(|s| s.to_string()),
-        };
-        self.put(&url, &request).await
-    }
-
-    /// Delete space
-    pub async fn delete_space(&self, name: &str) -> RaworcResult<()> {
-        let url = format!("/spaces/{}", name);
-        self.delete(&url).await?;
-        Ok(())
-    }
-
-    // Agent management
-    /// List agents in space
     pub async fn list_agents(&self, space: Option<&str>) -> RaworcResult<Vec<Agent>> {
-        let space = space.unwrap_or_else(|| self.default_space.as_deref().unwrap_or("default"));
-        let url = format!("/spaces/{}/agents", space);
-        self.get(&url).await
+        let sp = self.space(space);
+        self.get_json(&format!("spaces/{}/agents", sp)).await
     }
 
-    /// Create agent
-    pub async fn create_agent(&self, space: &str, request: &CreateAgentRequest) -> RaworcResult<Agent> {
-        let url = format!("/spaces/{}/agents", space);
-        self.post(&url, request).await
+    pub async fn create_agent(
+        &self,
+        space: &str,
+        request: &CreateAgentRequest,
+    ) -> RaworcResult<Agent> {
+        self.post_json(&format!("spaces/{}/agents", space), request)
+            .await
     }
 
-    /// Get agent by name
     pub async fn get_agent(&self, space: &str, agent_name: &str) -> RaworcResult<Agent> {
-        let url = format!("/spaces/{}/agents/{}", space, agent_name);
-        self.get(&url).await
+        self.get_json(&format!("spaces/{}/agents/{}", space, agent_name))
+            .await
     }
 
-    /// Update agent
     pub async fn update_agent(
         &self,
         space: &str,
         agent_name: &str,
         request: &UpdateAgentRequest,
     ) -> RaworcResult<Agent> {
-        let url = format!("/spaces/{}/agents/{}", space, agent_name);
-        self.put(&url, request).await
+        self.put_json(&format!("spaces/{}/agents/{}", space, agent_name), request)
+            .await
     }
 
-    /// Delete agent
     pub async fn delete_agent(&self, space: &str, agent_name: &str) -> RaworcResult<()> {
-        let url = format!("/spaces/{}/agents/{}", space, agent_name);
-        self.delete(&url).await?;
-        Ok(())
+        self.delete_req(&format!("spaces/{}/agents/{}", space, agent_name))
+            .await
     }
 
-    /// Get agent logs
     pub async fn get_agent_logs(&self, space: &str, agent_name: &str) -> RaworcResult<String> {
-        let url = format!("/spaces/{}/agents/{}/logs", space, agent_name);
-        let response = self.client.get(self.build_url(&url)).send().await?;
-        response.text().await.map_err(RaworcError::from)
+        let res = self
+            .http
+            .get(self.build_url(&format!("spaces/{}/agents/{}/logs", space, agent_name)))
+            .headers(self.build_headers())
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            return self.map_error_text(res).await;
+        }
+        Ok(res.text().await.unwrap_or_default())
     }
 
-    // Secret management
-    /// List secrets in space
+    /* ------------------------- Secrets (space-scoped) ---------------------- */
+
     pub async fn list_secrets(&self, space: Option<&str>) -> RaworcResult<Vec<Secret>> {
-        let space = space.unwrap_or_else(|| self.default_space.as_deref().unwrap_or("default"));
-        let url = format!("/spaces/{}/secrets", space);
-        self.get(&url).await
+        let sp = self.space(space);
+        self.get_json(&format!("spaces/{}/secrets", sp)).await
     }
 
-    /// Get secret by key
     pub async fn get_secret(&self, space: &str, key: &str) -> RaworcResult<Secret> {
-        let url = format!("/spaces/{}/secrets/{}", space, key);
-        self.get(&url).await
+        self.get_json(&format!("spaces/{}/secrets/{}", space, key))
+            .await
     }
 
-    /// Set secret
     pub async fn set_secret(&self, space: &str, key: &str, value: &str) -> RaworcResult<Secret> {
-        let url = format!("/spaces/{}/secrets/{}", space, key);
-        let request = CreateSecretRequest {
+        let req = CreateSecretRequest {
             value: value.to_string(),
         };
-        self.post(&url, &request).await
+        self.post_json(&format!("spaces/{}/secrets/{}", space, key), &req)
+            .await
     }
 
-    /// Update secret
     pub async fn update_secret(&self, space: &str, key: &str, value: &str) -> RaworcResult<Secret> {
-        let url = format!("/spaces/{}/secrets/{}", space, key);
-        let request = UpdateSecretRequest {
+        let req = UpdateSecretRequest {
             value: value.to_string(),
         };
-        self.put(&url, &request).await
+        self.put_json(&format!("spaces/{}/secrets/{}", space, key), &req)
+            .await
     }
 
-    /// Delete secret
     pub async fn delete_secret(&self, space: &str, key: &str) -> RaworcResult<()> {
-        let url = format!("/spaces/{}/secrets/{}", space, key);
-        self.delete(&url).await?;
-        Ok(())
+        self.delete_req(&format!("spaces/{}/secrets/{}", space, key))
+            .await
     }
 
-    // Service account management
-    /// List service accounts
-    pub async fn list_service_accounts(&self) -> RaworcResult<Vec<ServiceAccount>> {
-        self.get("/service-accounts").await
+    /* --------------------------- Builds (space) ---------------------------- */
+
+    pub async fn create_build(&self, space: &str, req: &CreateBuildRequest) -> RaworcResult<Build> {
+        self.post_json(&format!("spaces/{}/build", space), req).await
     }
 
-    /// Create service account
-    pub async fn create_service_account(&self, request: &CreateServiceAccountRequest) -> RaworcResult<ServiceAccount> {
-        self.post("/service-accounts", request).await
-    }
-
-    /// Get service account by ID
-    pub async fn get_service_account(&self, id: &str) -> RaworcResult<ServiceAccount> {
-        let url = format!("/service-accounts/{}", id);
-        self.get(&url).await
-    }
-
-    /// Update service account
-    pub async fn update_service_account(
-        &self,
-        id: &str,
-        request: &UpdateServiceAccountRequest,
-    ) -> RaworcResult<ServiceAccount> {
-        let url = format!("/service-accounts/{}", id);
-        self.put(&url, request).await
-    }
-
-    /// Delete service account
-    pub async fn delete_service_account(&self, id: &str) -> RaworcResult<()> {
-        let url = format!("/service-accounts/{}", id);
-        self.delete(&url).await?;
-        Ok(())
-    }
-
-    // Role management
-    /// List roles
-    pub async fn list_roles(&self) -> RaworcResult<Vec<Role>> {
-        self.get("/roles").await
-    }
-
-    /// Create role
-    pub async fn create_role(&self, request: &CreateRoleRequest) -> RaworcResult<Role> {
-        self.post("/roles", request).await
-    }
-
-    /// Get role by ID
-    pub async fn get_role(&self, id: &str) -> RaworcResult<Role> {
-        let url = format!("/roles/{}", id);
-        self.get(&url).await
-    }
-
-    /// Delete role
-    pub async fn delete_role(&self, id: &str) -> RaworcResult<()> {
-        let url = format!("/roles/{}", id);
-        self.delete(&url).await?;
-        Ok(())
-    }
-
-    // Role binding management
-    /// List role bindings
-    pub async fn list_role_bindings(&self) -> RaworcResult<Vec<RoleBinding>> {
-        self.get("/role-bindings").await
-    }
-
-    /// Create role binding
-    pub async fn create_role_binding(&self, request: &CreateRoleBindingRequest) -> RaworcResult<RoleBinding> {
-        self.post("/role-bindings", request).await
-    }
-
-    /// Get role binding by ID
-    pub async fn get_role_binding(&self, id: &str) -> RaworcResult<RoleBinding> {
-        let url = format!("/role-bindings/{}", id);
-        self.get(&url).await
-    }
-
-    /// Delete role binding
-    pub async fn delete_role_binding(&self, id: &str) -> RaworcResult<()> {
-        let url = format!("/role-bindings/{}", id);
-        self.delete(&url).await?;
-        Ok(())
-    }
-
-    // Build management
-    /// Create build
-    pub async fn create_build(&self, space: &str, request: &CreateBuildRequest) -> RaworcResult<Build> {
-        let url = format!("/spaces/{}/build", space);
-        self.post(&url, request).await
-    }
-
-    /// Get latest build
     pub async fn get_latest_build(&self, space: &str) -> RaworcResult<Build> {
-        let url = format!("/spaces/{}/build/latest", space);
-        self.get(&url).await
+        self.get_json(&format!("spaces/{}/build/latest", space)).await
     }
 
-    /// Get build by ID
     pub async fn get_build(&self, space: &str, build_id: &str) -> RaworcResult<Build> {
-        let url = format!("/spaces/{}/build/{}", space, build_id);
-        self.get(&url).await
+        self.get_json(&format!("spaces/{}/build/{}", space, build_id))
+            .await
     }
 
-    // Helper methods
+    /* ----------------------------- Internals -------------------------------- */
+
+    fn space<'a>(&'a self, space: Option<&'a str>) -> &'a str {
+        space.unwrap_or_else(|| self.default_space.as_deref().unwrap_or("default"))
+    }
+
     fn build_url(&self, path: &str) -> Url {
-        self.base_url.join(path).unwrap_or_else(|_| self.base_url.clone())
+        // Ensure base_url ends with `/` for proper join
+        let mut base = self.base_url.clone();
+        if !base.path().ends_with('/') {
+            base.set_path(&format!("{}/", base.path()));
+        }
+        // Strip any leading slash so Url::join keeps `/api/v0`
+        let path = path.trim_start_matches('/');
+        base.join(path).unwrap_or_else(|_| self.base_url.clone())
     }
 
-    fn build_headers(&self) -> reqwest::header::HeaderMap {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().unwrap(),
+    fn build_headers(&self) -> header::HeaderMap {
+        let mut h = header::HeaderMap::new();
+        h.insert(header::ACCEPT, header::HeaderValue::from_static("application/json"));
+        h.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
         );
         if let Some(token) = &self.auth_token {
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", token).parse().unwrap(),
-            );
+            if let Ok(v) = header::HeaderValue::from_str(&format!("Bearer {}", token)) {
+                h.insert(header::AUTHORIZATION, v);
+            }
         }
-        headers
+        h
     }
 
-    async fn get<T>(&self, path: &str) -> RaworcResult<T>
+    async fn get_json<T>(&self, path: &str) -> RaworcResult<T>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        let response = self
-            .client
-            .get(self.build_url(path))
-            .headers(self.build_headers())
-            .send()
-            .await?;
-
-        self.handle_response(response).await
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .get(self.build_url(path))
+                .headers(self.build_headers())
+                .send()
+                .await?;
+            self.handle_json(res).await
+        })
+        .await
     }
 
-    async fn post<T, U>(&self, path: &str, body: &T) -> RaworcResult<U>
+    async fn post_json<B, T>(&self, path: &str, body: &B) -> RaworcResult<T>
     where
-        T: serde::Serialize,
-        U: for<'de> serde::Deserialize<'de>,
+        B: Serialize + ?Sized,
+        T: for<'de> serde::Deserialize<'de>,
     {
-        let response = self
-            .client
-            .post(self.build_url(path))
-            .headers(self.build_headers())
-            .json(body)
-            .send()
-            .await?;
-
-        self.handle_response(response).await
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .post(self.build_url(path))
+                .headers(self.build_headers())
+                .json(body)
+                .send()
+                .await?;
+            self.handle_json(res).await
+        })
+        .await
     }
 
-    async fn put<T, U>(&self, path: &str, body: &T) -> RaworcResult<U>
+    async fn put_json<B, T>(&self, path: &str, body: &B) -> RaworcResult<T>
     where
-        T: serde::Serialize,
-        U: for<'de> serde::Deserialize<'de>,
+        B: Serialize + ?Sized,
+        T: for<'de> serde::Deserialize<'de>,
     {
-        let response = self
-            .client
-            .put(self.build_url(path))
-            .headers(self.build_headers())
-            .json(body)
-            .send()
-            .await?;
-
-        self.handle_response(response).await
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .put(self.build_url(path))
+                .headers(self.build_headers())
+                .json(body)
+                .send()
+                .await?;
+            self.handle_json(res).await
+        })
+        .await
     }
 
-    async fn delete(&self, path: &str) -> RaworcResult<()> {
-        let response = self
-            .client
-            .delete(self.build_url(path))
-            .headers(self.build_headers())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return self.handle_error_response(response).await;
-        }
-        Ok(())
+    async fn delete_req(&self, path: &str) -> RaworcResult<()> {
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .delete(self.build_url(path))
+                .headers(self.build_headers())
+                .send()
+                .await?;
+            if res.status().is_success() {
+                Ok(())
+            } else {
+                self.map_error_text(res).await
+            }
+        })
+        .await
     }
 
-    async fn handle_response<T>(&self, response: reqwest::Response) -> RaworcResult<T>
+    async fn handle_json<T>(&self, res: reqwest::Response) -> RaworcResult<T>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        if response.status().is_success() {
-            response.json::<T>().await.map_err(RaworcError::from)
+        if res.status().is_success() {
+            Ok(res.json::<T>().await?)
         } else {
-            self.handle_error_response(response).await
+            self.map_error_text(res).await
         }
     }
 
-    async fn handle_error_response<T>(&self, response: reqwest::Response) -> RaworcResult<T> {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+    async fn map_error_text<T>(&self, res: reqwest::Response) -> RaworcResult<T> {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_else(|_| "Unknown error".into());
 
         if status == reqwest::StatusCode::NOT_FOUND {
             return Err(RaworcError::not_found(&text));
         }
-
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(RaworcError::auth_error(&text));
         }
 
-        // Try to parse as API error response
-        if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(&text) {
-            return Err(RaworcError::api_error(
-                status.as_u16(),
-                api_error.error.message,
-            ));
+        if let Ok(api) = serde_json::from_str::<ApiErrorResponse>(&text) {
+            return Err(RaworcError::api_error(status.as_u16(), api.error.message));
         }
 
         Err(RaworcError::api_error(status.as_u16(), text))
+    }
+
+    /// Tiny helper: on 401, try one re-auth (if username/password present), then retry once.
+    async fn with_retry<F, Fut, T>(&self, f: F) -> RaworcResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = RaworcResult<T>>,
+        T: Sized,
+    {
+        match f().await {
+            Ok(v) => Ok(v),
+            Err(e) if matches!(e, RaworcError::AuthError(_)) => {
+                if let (Some(u), Some(p)) = (&self.username, &self.password) {
+                    let token = Self::login_once(&self.http, self.base_url.clone(), u, p, self.timeout).await?;
+                    let _ = token; // available if you want to persist externally
+                    f().await
+                } else {
+                    Err(e)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn login_once(
+        http: &Client,
+        base_url: Url,
+        username: &str,
+        password: &str,
+        _timeout: u64,
+    ) -> RaworcResult<String> {
+        #[derive(Serialize)]
+        struct AuthRequest {
+            user: String,
+            pass: String,
+        }
+        #[derive(Deserialize)]
+        struct AuthResponseWire {
+            token: String,
+        }
+
+        let mut base = base_url.clone();
+        if !base.path().ends_with('/') {
+            base.set_path(&format!("{}/", base.path()));
+        }
+        // NOTE: no leading slash here so `/api/v0` is preserved
+        let url = base.join("auth/login").unwrap();
+
+        let res = http
+            .post(url)
+            .header(header::CONTENT_TYPE, "application/json")
+            .json(&AuthRequest {
+                user: username.to_string(),
+                pass: password.to_string(),
+            })
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            let r = res.json::<AuthResponseWire>().await?;
+            Ok(r.token)
+        } else {
+            let status = res.status();
+            let text = res.text().await.unwrap_or_default();
+            if let Ok(api) = serde_json::from_str::<ApiErrorResponse>(&text) {
+                Err(RaworcError::api_error(status.as_u16(), api.error.message))
+            } else {
+                Err(RaworcError::api_error(status.as_u16(), text))
+            }
+        }
     }
 }

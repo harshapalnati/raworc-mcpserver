@@ -1,160 +1,80 @@
 # Raworc MCP Server
 
-A Model Context Protocol (MCP) server for Raworc, providing seamless integration between AI assistants and Raworc's agent runtime platform.
+A production-ready Model Context Protocol (MCP) server for Raworc, enabling AI assistants to seamlessly interact with Raworc's agent runtime platform.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.70+-blue.svg)](https://www.rust-lang.org/)
+[![npm](https://img.shields.io/badge/npm-@raworc/mcp--server-red.svg)](https://www.npmjs.com/package/@raworc/mcp-server)
 
 ## 🚀 Quick Start
 
-**Want to get started immediately?** Check out our [Quick Start Guide](QUICKSTART.md) for step-by-step instructions!
+### Option 1: Install via npx (Recommended)
 
-**One-liner installation:**
 ```bash
+# Test the installation
 npx @raworc/mcp-server --help
+
+# Use directly with Claude Desktop
+npx @raworc/mcp-server
 ```
 
-## Features
+### Option 2: Install from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/harshapalnati/raworc-mcpserver.git
+cd raworc-mcpserver
+
+# Build the project
+cargo build --release
+
+# Test the installation
+./target/release/raworc-mcp --help
+```
+
+## 📋 Prerequisites
+
+- **Rust**: Version 1.70 or higher
+- **Node.js**: Version 16.0 or higher (for npx installation)
+- **Raworc Account**: Access to Raworc platform
+- **Network Access**: Ability to reach `api.remoteagent.com`
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `RAWORC_API_URL` | Raworc API base URL | `https://api.remoteagent.com/api/v0` | No |
+| `RAWORC_AUTH_TOKEN` | JWT authentication token | - | Yes |
+| `RAWORC_DEFAULT_SPACE` | Default space for operations | - | No |
+| `RAWORC_TIMEOUT` | Request timeout in seconds | `30` | No |
+| `LOG_LEVEL` | Logging level | `info` | No |
+
+### Getting Your Authentication Token
+
+```bash
+curl -X POST https://api.remoteagent.com/api/v0/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user": "your-username",
+    "pass": "your-password"
+  }'
+```
+
+## 🎯 Features
 
 - **Session Management**: Create, pause, resume, and terminate sessions
 - **Message Handling**: Send and retrieve messages from sessions
 - **Space Management**: List and manage spaces
-- **Agent Management**: List agents and retrieve logs
+- **Agent Operations**: Deploy, monitor, and control agents
 - **Secret Management**: Secure storage and retrieval of secrets
+- **Real-time Communication**: Send messages and receive responses from agents
 - **Health Monitoring**: Check API health and version information
-- **Full MCP Protocol Support**: Complete implementation of the Model Context Protocol
 
-## Installation
+## 🔌 Claude Desktop Integration
 
-### Prerequisites
-
-- **Rust**: Version 1.70.0 or higher (for building the binary)
-- **Node.js**: Version 16.0.0 or higher (for npx installation)
-- **Network Access**: Ability to reach `raworc.remoteagent.com:9000`
-
-### Quick Install with npx (Recommended)
-
-```bash
-# Install and run directly with npx
-npx @raworc/mcp-server --help
-
-# Or install globally
-npm install -g @raworc/mcp-server
-raworc-mcp --help
-```
-
-The package will automatically build the Rust binary during installation.
-
-### Manual Installation
-
-#### Option 1: Clone and Install
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/raworc-mcp.git
-cd raworc-mcp
-
-# Install with npm (builds Rust binary automatically)
-npm install
-
-# Run the server
-npx raworc-mcp --help
-```
-
-#### Option 2: Direct Rust Build
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/raworc-mcp.git
-cd raworc-mcp
-
-# Build the release version
-cargo build --release
-
-# Install to your system (choose one):
-# Option A: System-wide installation (requires sudo)
-sudo cp target/release/raworc-mcp /usr/local/bin/
-
-# Option B: User installation
-mkdir -p ~/.local/bin
-cp target/release/raworc-mcp ~/.local/bin/
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-## Configuration
-
-The MCP server can be configured using environment variables or command-line arguments:
-
-### Environment Variables
-
-- `RAWORC_API_URL`: Raworc API base URL (default: `http://raworc.remoteagent.com:9000/api/v0`)
-- `RAWORC_AUTH_TOKEN`: Authentication token
-- `RAWORC_USERNAME`: Username for authentication
-- `RAWORC_PASSWORD`: Password for authentication
-- `RAWORC_DEFAULT_SPACE`: Default space to use (default: `default`)
-- `RAWORC_TIMEOUT`: Request timeout in seconds (default: `30`)
-- `LOG_LEVEL`: Logging level (default: `info`)
-
-### Command Line Arguments
-
-```bash
-raworc-mcp --api-url https://your-raworc-instance.com/api/v0 \
-           --username your-username \
-           --password your-password \
-           --default-space production \
-           --timeout 60 \
-           --log-level debug
-```
-
-## Quick Start Guide
-
-### Step 1: Install the MCP Server
-
-Choose one of these installation methods:
-
-#### Option A: Quick Install with npx (Recommended)
-```bash
-# Install and run directly (no permanent installation)
-npx @raworc/mcp-server --help
-
-# Or install globally for repeated use
-npm install -g @raworc/mcp-server
-```
-
-#### Option B: Clone and Install
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/raworc-mcp.git
-cd raworc-mcp
-
-# Install (this builds the Rust binary automatically)
-npm install
-```
-
-### Step 2: Get Your Raworc Auth Token
-
-You need an authentication token to use the MCP server:
-
-```bash
-# Get your auth token using curl
-curl -X POST http://raworc.remoteagent.com:9000/api/v0/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"user": "your-username", "pass": "your-password"}'
-```
-
-The response will contain your auth token. Copy it for the next step.
-
-### Step 3: Test the MCP Server
-
-```bash
-# Test with npx
-npx @raworc/mcp-server --auth-token YOUR_TOKEN_HERE --log-level debug
-
-# Or if installed globally
-raworc-mcp --auth-token YOUR_TOKEN_HERE --log-level debug
-```
-
-### Step 4: Configure Claude Desktop
-
-Add this to your Claude Desktop configuration file:
+Add the MCP server to your Claude Desktop configuration:
 
 ```json
 {
@@ -163,120 +83,41 @@ Add this to your Claude Desktop configuration file:
       "command": "npx",
       "args": ["@raworc/mcp-server"],
       "env": {
-        "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-        "RAWORC_AUTH_TOKEN": "YOUR_TOKEN_HERE"
+        "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+        "RAWORC_AUTH_TOKEN": "your-jwt-token",
+        "RAWORC_DEFAULT_SPACE": "your-space",
+        "RAWORC_TIMEOUT": "30",
+        "LOG_LEVEL": "info"
       }
     }
   }
 }
 ```
 
-### Step 5: Use in Claude Desktop
+### Alternative: Direct Binary Path
 
-Restart Claude Desktop and try these commands:
-
-```
-@raworc health_check
-@raworc list_spaces
-@raworc list_sessions
-@raworc create_session
-```
-
-## Usage Examples
-
-### Command Line Usage
-
-```bash
-# Basic usage with auth token
-raworc-mcp --auth-token your-token
-
-# With custom configuration
-raworc-mcp --api-url http://raworc.remoteagent.com:9000/api/v0 \
-           --auth-token your-token \
-           --default-space production \
-           --timeout 60 \
-           --log-level debug
-
-# Using environment variables
-export RAWORC_AUTH_TOKEN="your-token"
-export RAWORC_DEFAULT_SPACE="production"
-raworc-mcp
-```
-
-### Environment Variables
-
-You can configure the server using environment variables:
-
-```bash
-export RAWORC_API_URL="http://raworc.remoteagent.com:9000/api/v0"
-export RAWORC_AUTH_TOKEN="your-auth-token"
-export RAWORC_DEFAULT_SPACE="production"
-export RAWORC_TIMEOUT="60"
-export LOG_LEVEL="debug"
-```
-
-### Testing Individual Commands
-
-You can test the MCP server by sending JSON-RPC messages:
-
-```bash
-# Health check
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | raworc-mcp --auth-token your-token
-
-# List spaces
-echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | raworc-mcp --auth-token your-token
-
-# Create a session
-echo '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "create_session", "arguments": {"space": "default", "metadata": {"purpose": "testing"}}}}' | raworc-mcp --auth-token your-token
-```
-
-### Integration with MCP Clients
-
-The server implements the Model Context Protocol and can be used with any MCP-compatible client. Here's an example configuration for Claude Desktop:
-
-#### Using npx (Recommended)
 ```json
 {
   "mcpServers": {
     "raworc": {
-      "command": "npx",
-      "args": ["@raworc/mcp-server"],
+      "command": "/path/to/raworc-mcp",
       "env": {
-        "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-        "RAWORC_AUTH_TOKEN": "your-token"
+        "RAWORC_API_URL": "https://api.remoteagent.com/api/v0",
+        "RAWORC_AUTH_TOKEN": "your-jwt-token",
+        "RAWORC_DEFAULT_SPACE": "your-space"
       }
     }
   }
 }
 ```
 
-#### Using Global Installation
-```json
-{
-  "mcpServers": {
-    "raworc": {
-      "command": "raworc-mcp",
-      "args": [],
-      "env": {
-        "RAWORC_API_URL": "http://raworc.remoteagent.com:9000/api/v0",
-        "RAWORC_AUTH_TOKEN": "your-token"
-      }
-    }
-  }
-}
-```
-
-## Available Tools
+## 🛠️ Available Tools
 
 ### Session Management
 
 #### `list_sessions`
 List all sessions in a space.
 
-**Parameters:**
-- `space` (optional): Space name (uses default if not provided)
-
-**Example:**
 ```json
 {
   "name": "list_sessions",
@@ -289,11 +130,6 @@ List all sessions in a space.
 #### `create_session`
 Create a new session.
 
-**Parameters:**
-- `space` (optional): Space name (uses default if not provided)
-- `metadata` (optional): Additional metadata object
-
-**Example:**
 ```json
 {
   "name": "create_session",
@@ -310,10 +146,6 @@ Create a new session.
 #### `get_session`
 Get session details by ID.
 
-**Parameters:**
-- `session_id` (required): Session ID
-
-**Example:**
 ```json
 {
   "name": "get_session",
@@ -326,11 +158,6 @@ Get session details by ID.
 #### `send_message`
 Send a message to a session.
 
-**Parameters:**
-- `session_id` (required): Session ID
-- `content` (required): Message content
-
-**Example:**
 ```json
 {
   "name": "send_message",
@@ -344,11 +171,6 @@ Send a message to a session.
 #### `get_messages`
 Get messages from a session.
 
-**Parameters:**
-- `session_id` (required): Session ID
-- `limit` (optional): Maximum number of messages to return
-
-**Example:**
 ```json
 {
   "name": "get_messages",
@@ -362,10 +184,6 @@ Get messages from a session.
 #### `pause_session`
 Pause a session.
 
-**Parameters:**
-- `session_id` (required): Session ID
-
-**Example:**
 ```json
 {
   "name": "pause_session",
@@ -378,10 +196,6 @@ Pause a session.
 #### `resume_session`
 Resume a paused session.
 
-**Parameters:**
-- `session_id` (required): Session ID
-
-**Example:**
 ```json
 {
   "name": "resume_session",
@@ -394,10 +208,6 @@ Resume a paused session.
 #### `terminate_session`
 Terminate a session.
 
-**Parameters:**
-- `session_id` (required): Session ID
-
-**Example:**
 ```json
 {
   "name": "terminate_session",
@@ -412,9 +222,6 @@ Terminate a session.
 #### `list_spaces`
 List all spaces.
 
-**Parameters:** None
-
-**Example:**
 ```json
 {
   "name": "list_spaces",
@@ -427,10 +234,6 @@ List all spaces.
 #### `list_agents`
 List agents in a space.
 
-**Parameters:**
-- `space` (optional): Space name (uses default if not provided)
-
-**Example:**
 ```json
 {
   "name": "list_agents",
@@ -443,11 +246,6 @@ List agents in a space.
 #### `get_agent_logs`
 Get logs for a specific agent.
 
-**Parameters:**
-- `space` (required): Space name
-- `agent_name` (required): Agent name
-
-**Example:**
 ```json
 {
   "name": "get_agent_logs",
@@ -463,10 +261,6 @@ Get logs for a specific agent.
 #### `list_secrets`
 List secrets in a space.
 
-**Parameters:**
-- `space` (optional): Space name (uses default if not provided)
-
-**Example:**
 ```json
 {
   "name": "list_secrets",
@@ -479,11 +273,6 @@ List secrets in a space.
 #### `get_secret`
 Get a specific secret.
 
-**Parameters:**
-- `space` (required): Space name
-- `key` (required): Secret key
-
-**Example:**
 ```json
 {
   "name": "get_secret",
@@ -497,12 +286,6 @@ Get a specific secret.
 #### `set_secret`
 Set a secret value.
 
-**Parameters:**
-- `space` (required): Space name
-- `key` (required): Secret key
-- `value` (required): Secret value
-
-**Example:**
 ```json
 {
   "name": "set_secret",
@@ -517,11 +300,6 @@ Set a secret value.
 #### `delete_secret`
 Delete a secret.
 
-**Parameters:**
-- `space` (required): Space name
-- `key` (required): Secret key
-
-**Example:**
 ```json
 {
   "name": "delete_secret",
@@ -537,9 +315,6 @@ Delete a secret.
 #### `health_check`
 Check Raworc API health.
 
-**Parameters:** None
-
-**Example:**
 ```json
 {
   "name": "health_check",
@@ -550,9 +325,6 @@ Check Raworc API health.
 #### `get_version`
 Get Raworc API version.
 
-**Parameters:** None
-
-**Example:**
 ```json
 {
   "name": "get_version",
@@ -560,14 +332,42 @@ Get Raworc API version.
 }
 ```
 
-## Development
+## 🧪 Testing
+
+### Quick Test
+
+```bash
+# Test with npx
+npx @raworc/mcp-server --help
+
+# Test health check
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "health_check", "arguments": {}}}' | npx @raworc/mcp-server
+
+# Test list spaces
+echo '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}}' | npx @raworc/mcp-server
+```
+
+### Manual API Testing
+
+```bash
+# Health check
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/health
+
+# Get version
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/version
+
+# List spaces
+curl -H "Authorization: Bearer your-token" https://api.remoteagent.com/api/v0/spaces
+```
+
+## 🏗️ Development
 
 ### Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/raworc-mcp.git
-cd raworc-mcp
+git clone https://github.com/harshapalnati/raworc-mcpserver.git
+cd raworc-mcpserver
 
 # Build the project
 cargo build --release
@@ -575,22 +375,21 @@ cargo build --release
 # Run tests
 cargo test
 
-# Install with npm (optional)
+# Install with npm (for npx distribution)
 npm install
 ```
 
 ### Project Structure
 
 ```
-raworc-mcp/
+raworc-mcpserver/
 ├── src/
 │   ├── main.rs          # Entry point
 │   ├── lib.rs           # Library exports
 │   ├── client.rs        # Raworc API client
 │   ├── error.rs         # Error handling
 │   ├── models.rs        # Data models
-│   ├── mcp.rs           # MCP server implementation
-│   └── server.rs        # MCP protocol server
+│   └── mcp.rs           # MCP server implementation
 ├── bin/
 │   └── raworc-mcp.js    # JavaScript wrapper for npx
 ├── scripts/
@@ -599,38 +398,44 @@ raworc-mcp/
 │   └── integration_test.rs  # Integration tests
 ├── examples/
 │   ├── claude-desktop-config.json  # Example Claude Desktop config
-│   ├── usage-example.md            # Usage examples
-│   └── test-installation.js        # Installation test script
+│   └── usage-example.md            # Usage examples
 ├── Cargo.toml           # Rust dependencies
 ├── package.json         # npm package configuration
-├── install.sh           # Linux/macOS installation script
-├── install.ps1          # Windows installation script
 ├── QUICKSTART.md        # Quick start guide
 ├── TESTING.md           # Testing guide
 └── README.md           # This file
 ```
 
-### Testing
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Authentication Failed**
+   - Verify your token is valid and not expired
+   - Check that you have the correct permissions
+
+2. **Connection Issues**
+   - Verify you can reach `api.remoteagent.com`
+   - Check your network connectivity
+
+3. **Permission Errors**
+   - Ensure your account has the necessary permissions
+   - Check that you're using the correct space
+
+### Debug Mode
 
 ```bash
-# Run Rust tests
-cargo test
-
-# Run integration tests
-cargo test --test integration
+export LOG_LEVEL="debug"
+export RAWORC_API_URL="https://api.remoteagent.com/api/v0"
+export RAWORC_AUTH_TOKEN="your-token"
+npx @raworc/mcp-server
 ```
 
-## Error Handling
+## 📄 License
 
-The MCP server provides comprehensive error handling with detailed error messages. Common error types include:
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-- **Authentication Errors**: Invalid credentials or missing authentication
-- **API Errors**: Raworc API errors with status codes and messages
-- **Validation Errors**: Invalid input parameters
-- **Network Errors**: Connection issues or timeouts
-- **MCP Protocol Errors**: Protocol-related errors
-
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -638,21 +443,26 @@ The MCP server provides comprehensive error handling with detailed error message
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
+## 📞 Support
 
 - **Documentation**: [Raworc API Documentation](https://raworc.com/docs/api/rest-api)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/raworc-mcp/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/raworc-mcp/discussions)
+- **Issues**: [GitHub Issues](https://github.com/harshapalnati/raworc-mcpserver/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/harshapalnati/raworc-mcpserver/discussions)
 
-## Changelog
+## 📝 Changelog
 
 ### v0.1.0
+
 - Initial release
 - Full MCP protocol implementation
 - Complete Raworc API integration
 - Session, space, agent, and secret management
 - Health monitoring and version information
+- npx installation support
+- Production-ready error handling
+
+## 🔗 Links
+
+- **Repository**: [https://github.com/harshapalnati/raworc-mcpserver](https://github.com/harshapalnati/raworc-mcpserver)
+- **npm Package**: [@raworc/mcp-server](https://www.npmjs.com/package/@raworc/mcp-server)
+- **Raworc API**: [https://raworc.com/docs/api/rest-api](https://raworc.com/docs/api/rest-api)
