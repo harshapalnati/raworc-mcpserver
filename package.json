@@ -1,0 +1,55 @@
+{
+  "name": "@raworc/mcp-server",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for Raworc - Production-ready MCP server for Raworc cloud platform",
+  "main": "index.js",
+  "bin": {
+    "raworc-mcp": "./bin/raworc-mcp.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "clean": "cargo clean"
+  },
+  "keywords": [
+    "mcp",
+    "raworc",
+    "ai",
+    "agent",
+    "model-context-protocol"
+  ],
+  "author": "Raworc Team <team@raworc.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raworc/raworc-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/raworc/raworc-mcp/issues"
+  },
+  "homepage": "https://github.com/raworc/raworc-mcp#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "scripts/",
+    "target/release/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "prepublishOnly": "npm run build"
+}
