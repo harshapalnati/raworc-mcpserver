@@ -249,6 +249,66 @@ impl RaworcClient {
             .await
     }
 
+    /* ------------------------- Sessions (global) ------------------------- */
+
+    pub async fn list_all_sessions(&self) -> RaworcResult<Vec<Session>> {
+        self.get_json("sessions").await
+    }
+
+    pub async fn create_global_session(&self, request: &CreateSessionRequest) -> RaworcResult<Session> {
+        self.post_json("sessions", request).await
+    }
+
+    pub async fn get_global_session(&self, session_id: &str) -> RaworcResult<Session> {
+        self.get_json(&format!("sessions/{}", session_id)).await
+    }
+
+    pub async fn update_global_session(&self, session_id: &str, request: &UpdateSessionRequest) -> RaworcResult<Session> {
+        self.put_json(&format!("sessions/{}", session_id), request).await
+    }
+
+    pub async fn update_global_session_state(&self, session_id: &str, request: &UpdateSessionStateRequest) -> RaworcResult<()> {
+        self.put_json::<_, ()>(&format!("sessions/{}/state", session_id), request).await
+    }
+
+    pub async fn close_session(&self, session_id: &str) -> RaworcResult<()> {
+        self.post_json::<_, ()>(&format!("sessions/{}/close", session_id), &()).await
+    }
+
+    pub async fn restore_session(&self, session_id: &str) -> RaworcResult<()> {
+        self.post_json::<_, ()>(&format!("sessions/{}/restore", session_id), &()).await
+    }
+
+    pub async fn remix_session(&self, session_id: &str, request: &CreateSessionRequest) -> RaworcResult<Session> {
+        self.post_json(&format!("sessions/{}/remix", session_id), request).await
+    }
+
+    pub async fn delete_global_session(&self, session_id: &str) -> RaworcResult<()> {
+        self.delete_req(&format!("sessions/{}", session_id)).await
+    }
+
+    /* ------------------------- Session Messages (global) ------------------------- */
+
+    pub async fn get_global_messages(&self, session_id: &str, limit: Option<u64>) -> RaworcResult<Vec<Message>> {
+        let mut path = format!("sessions/{}/messages", session_id);
+        if let Some(n) = limit {
+            path.push_str(&format!("?limit={}", n));
+        }
+        self.get_json(&path).await
+    }
+
+    pub async fn send_global_message(&self, session_id: &str, request: &CreateMessageRequest) -> RaworcResult<Message> {
+        self.post_json(&format!("sessions/{}/messages", session_id), request).await
+    }
+
+    pub async fn get_global_message_count(&self, session_id: &str) -> RaworcResult<MessageCount> {
+        self.get_json(&format!("sessions/{}/messages/count", session_id)).await
+    }
+
+    pub async fn clear_global_messages(&self, session_id: &str) -> RaworcResult<()> {
+        self.delete_req(&format!("sessions/{}/messages", session_id)).await
+    }
+
     /* ------------------------- Agents (space-scoped) ----------------------- */
 
     pub async fn list_agents(&self, space: Option<&str>) -> RaworcResult<Vec<Agent>> {
@@ -421,6 +481,24 @@ impl RaworcClient {
             let res = self
                 .http
                 .put(self.build_url(path))
+                .headers(self.build_headers())
+                .json(body)
+                .send()
+                .await?;
+            self.handle_json(res).await
+        })
+        .await
+    }
+
+    async fn patch_json<B, T>(&self, path: &str, body: &B) -> RaworcResult<T>
+    where
+        B: Serialize + ?Sized,
+        T: for<'de> serde::Deserialize<'de>,
+    {
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .patch(self.build_url(path))
                 .headers(self.build_headers())
                 .json(body)
                 .send()

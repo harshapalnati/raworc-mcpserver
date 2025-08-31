@@ -11,6 +11,8 @@ pub enum SessionState {
     Paused,
     Suspended,
     Terminated,
+    Idle,
+    Closed,
 }
 
 /// Session model
@@ -89,6 +91,8 @@ pub struct MessageCount {
 pub struct Space {
     pub name: String,
     pub description: Option<String>,
+    pub settings: Option<HashMap<String, serde_json::Value>>,
+    pub active: Option<bool>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -98,12 +102,14 @@ pub struct Space {
 pub struct CreateSpaceRequest {
     pub name: String,
     pub description: Option<String>,
+    pub settings: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Update space request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSpaceRequest {
     pub description: Option<String>,
+    pub settings: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Agent model
@@ -111,10 +117,9 @@ pub struct UpdateSpaceRequest {
 pub struct Agent {
     pub name: String,
     pub description: Option<String>,
-    pub image: String,
-    pub command: Option<Vec<String>>,
-    pub env: Option<HashMap<String, String>>,
-    pub resources: Option<AgentResources>,
+    pub purpose: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_branch: Option<String>,
     pub status: AgentStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -124,8 +129,10 @@ pub struct Agent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
-    Stopped,
+    Active,
+    Inactive,
     Running,
+    Stopped,
     Error,
 }
 
@@ -142,7 +149,10 @@ pub struct AgentResources {
 pub struct CreateAgentRequest {
     pub name: String,
     pub description: Option<String>,
-    pub image: String,
+    pub purpose: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_branch: Option<String>,
+    pub image: Option<String>,
     pub command: Option<Vec<String>>,
     pub env: Option<HashMap<String, String>>,
     pub resources: Option<AgentResources>,
@@ -152,6 +162,9 @@ pub struct CreateAgentRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateAgentRequest {
     pub description: Option<String>,
+    pub purpose: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_branch: Option<String>,
     pub image: Option<String>,
     pub command: Option<Vec<String>>,
     pub env: Option<HashMap<String, String>>,
@@ -164,25 +177,45 @@ pub struct UpdateAgentStatusRequest {
     pub status: AgentStatus,
 }
 
+/// Running agent model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunningAgent {
+    pub name: String,
+    pub status: AgentStatus,
+    pub started_at: DateTime<Utc>,
+}
+
+/// Agent logs response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentLogsResponse {
+    pub logs: Vec<String>,
+}
+
 /// Secret model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Secret {
-    pub key: String,
-    pub value: String,
+    pub key_name: String,
+    pub value: Option<String>,
+    pub description: Option<String>,
+    pub space: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub created_by: Option<String>,
 }
 
 /// Create secret request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSecretRequest {
+    pub key_name: String,
     pub value: String,
+    pub description: Option<String>,
 }
 
 /// Update secret request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSecretRequest {
-    pub value: String,
+    pub value: Option<String>,
+    pub description: Option<String>,
 }
 
 /// Service account model
@@ -222,6 +255,14 @@ pub struct UpdatePasswordRequest {
     pub new_password: String,
 }
 
+/// Role rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleRule {
+    pub resources: Vec<String>,
+    pub verbs: Vec<String>,
+    pub scope: String,
+}
+
 /// Role model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Role {
@@ -229,14 +270,6 @@ pub struct Role {
     pub description: Option<String>,
     pub rules: Vec<RoleRule>,
     pub created_at: DateTime<Utc>,
-}
-
-/// Role rule
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoleRule {
-    pub resources: Vec<String>,
-    pub verbs: Vec<String>,
-    pub scope: String,
 }
 
 /// Create role request
@@ -296,18 +329,6 @@ pub struct VersionResponse {
     pub api: String,
 }
 
-/// Build model
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Build {
-    pub id: String,
-    pub space: String,
-    pub status: BuildStatus,
-    pub image: Option<String>,
-    pub logs: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-}
-
 /// Build status enum
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -318,10 +339,21 @@ pub enum BuildStatus {
     Failed,
 }
 
+/// Build model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Build {
+    pub id: Option<String>,
+    pub space: Option<String>,
+    pub status: BuildStatus,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub logs: Option<String>,
+}
+
 /// Create build request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBuildRequest {
-    pub dockerfile: String,
+    pub dockerfile: Option<String>,
     pub context: Option<String>,
 }
 
