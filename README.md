@@ -959,6 +959,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Documentation**: [Raworc API Documentation](https://raworc.com/docs/api/rest-api)
+- **RemoteAgent REST (v0)**: [ra-hyp-1 endpoints and examples](docs/REST-API-v0.md)
+- **Production Guide**: [Deploy and operate in production](docs/PRODUCTION.md)
 - **Issues**: [GitHub Issues](https://github.com/harshapalnati/raworc-mcpserver/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/harshapalnati/raworc-mcpserver/discussions)
 

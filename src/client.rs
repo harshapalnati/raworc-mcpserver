@@ -48,7 +48,11 @@ impl RaworcClient {
 
         let timeout = config.timeout_seconds.unwrap_or(30);
         let http = Client::builder()
+            .user_agent(format!("raworc-mcp/{}", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(timeout.min(10)))
             .timeout(Duration::from_secs(timeout))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .pool_max_idle_per_host(8)
             .build()
             .map_err(|e| RaworcError::ConfigError(format!("Failed to create HTTP client: {}", e)))?;
 
@@ -95,44 +99,191 @@ impl RaworcClient {
         self.get_json("auth/me").await
     }
 
-    /// Health (often public)
-    pub async fn health_check(&self) -> RaworcResult<String> {
-        let res = self.http.get(self.build_url("health")).send().await?;
-        Ok(res.text().await.unwrap_or_default())
-    }
-
     /// Version (public)
-    pub async fn get_version(&self) -> RaworcResult<VersionResponse> {
+    pub async fn ra_get_version(&self) -> RaworcResult<Value> {
         self.get_json("version").await
     }
 
-    /* ------------------------- Spaces (org/global) ------------------------- */
+    /* ---------------------------- Agents (v0) ------------------------------ */
 
-    pub async fn list_spaces(&self) -> RaworcResult<Vec<Space>> {
-        self.get_json("spaces").await
+    pub async fn agents_list(
+        &self,
+        q: Option<&str>,
+        tags: Option<&str>,
+        state: Option<&str>,
+        limit: Option<u32>,
+        page: Option<u32>,
+        offset: Option<u32>,
+    ) -> RaworcResult<Value> {
+        let mut url = self.build_url("agents");
+        {
+            let mut qp = url.query_pairs_mut();
+            if let Some(v) = q { qp.append_pair("q", v); }
+            if let Some(v) = tags { qp.append_pair("tags", v); }
+            if let Some(v) = state { qp.append_pair("state", v); }
+            if let Some(v) = limit { qp.append_pair("limit", &v.to_string()); }
+            if let Some(v) = page { qp.append_pair("page", &v.to_string()); }
+            if let Some(v) = offset { qp.append_pair("offset", &v.to_string()); }
+        }
+        self.get_json(url.path()).await
     }
 
-    pub async fn create_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
-        let req = CreateSpaceRequest {
-            name: name.to_string(),
-            description: description.map(|s| s.to_string()),
-        };
-        self.post_json("spaces", &req).await
+    pub async fn agent_create(&self, body: &Value) -> RaworcResult<Value> {
+        self.post_json("agents", body).await
     }
 
-    pub async fn get_space(&self, name: &str) -> RaworcResult<Space> {
-        self.get_json(&format!("spaces/{}", name)).await
+    pub async fn agent_get(&self, name: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}", name)).await
     }
 
-    pub async fn update_space(&self, name: &str, description: Option<&str>) -> RaworcResult<Space> {
-        let req = UpdateSpaceRequest {
-            description: description.map(|s| s.to_string()),
-        };
-        self.put_json(&format!("spaces/{}", name), &req).await
+    pub async fn agent_update(&self, name: &str, body: &Value) -> RaworcResult<Value> {
+        self.put_json(&format!("agents/{}", name), body).await
     }
 
-    pub async fn delete_space(&self, name: &str) -> RaworcResult<()> {
-        self.delete_req(&format!("spaces/{}", name)).await
+    pub async fn agent_delete(&self, name: &str) -> RaworcResult<()> {
+        self.delete_req(&format!("agents/{}", name)).await
+    }
+
+    pub async fn agent_set_state(&self, name: &str, state: &str) -> RaworcResult<Value> {
+        let body = serde_json::json!({"state": state});
+        self.put_json(&format!("agents/{}/state", name), &body).await
+    }
+
+    pub async fn agent_busy(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/busy", name), &serde_json::json!({})).await
+    }
+
+    pub async fn agent_idle(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/idle", name), &serde_json::json!({})).await
+    }
+
+    pub async fn agent_sleep(&self, name: &str, delay_seconds: Option<u32>, note: Option<&str>) -> RaworcResult<Value> {
+        let body = serde_json::json!({
+            "delay_seconds": delay_seconds,
+            "note": note
+        });
+        self.post_json(&format!("agents/{}/sleep", name), &body).await
+    }
+
+    pub async fn agent_cancel(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/cancel", name), &serde_json::json!({})).await
+    }
+
+    pub async fn agent_wake(&self, name: &str, prompt: Option<&str>) -> RaworcResult<Value> {
+        let body = serde_json::json!({"prompt": prompt});
+        self.post_json(&format!("agents/{}/wake", name), &body).await
+    }
+
+    pub async fn agent_runtime(&self, name: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}/runtime", name)).await
+    }
+
+    pub async fn agent_remix(&self, name: &str, body: &Value) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/remix", name), body).await
+    }
+
+    pub async fn agent_publish(&self, name: &str, body: &Value) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/publish", name), body).await
+    }
+
+    pub async fn agent_unpublish(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/unpublish", name), &serde_json::json!({})).await
+    }
+
+    /* ------------------------- Agent Responses (v0) ------------------------ */
+
+    pub async fn responses_list(&self, name: &str, limit: Option<u32>, offset: Option<u32>) -> RaworcResult<Value> {
+        let mut url = self.build_url(&format!("agents/{}/responses", name));
+        {
+            let mut qp = url.query_pairs_mut();
+            if let Some(v) = limit { qp.append_pair("limit", &v.to_string()); }
+            if let Some(v) = offset { qp.append_pair("offset", &v.to_string()); }
+        }
+        self.get_json(url.path()).await
+    }
+
+    pub async fn response_create(&self, name: &str, body: &Value) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/responses", name), body).await
+    }
+
+    pub async fn response_get(&self, name: &str, id: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}/responses/{}", name, id)).await
+    }
+
+    pub async fn response_update(&self, name: &str, id: &str, body: &Value) -> RaworcResult<Value> {
+        self.put_json(&format!("agents/{}/responses/{}", name, id), body).await
+    }
+
+    pub async fn responses_count(&self, name: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}/responses/count", name)).await
+    }
+
+    /* --------------------------- Agent Files (v0) -------------------------- */
+
+    pub async fn files_list_root(&self, name: &str, offset: Option<u32>, limit: Option<u32>) -> RaworcResult<Value> {
+        let mut url = self.build_url(&format!("agents/{}/files/list", name));
+        {
+            let mut qp = url.query_pairs_mut();
+            if let Some(v) = offset { qp.append_pair("offset", &v.to_string()); }
+            if let Some(v) = limit { qp.append_pair("limit", &v.to_string()); }
+        }
+        self.get_json(url.path()).await
+    }
+
+    pub async fn files_list_path(&self, name: &str, path: &str, offset: Option<u32>, limit: Option<u32>) -> RaworcResult<Value> {
+        let mut url = self.build_url(&format!("agents/{}/files/list/{}", name, path));
+        {
+            let mut qp = url.query_pairs_mut();
+            if let Some(v) = offset { qp.append_pair("offset", &v.to_string()); }
+            if let Some(v) = limit { qp.append_pair("limit", &v.to_string()); }
+        }
+        self.get_json(url.path()).await
+    }
+
+    pub async fn files_metadata(&self, name: &str, path: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}/files/metadata/{}", name, path)).await
+    }
+
+    pub async fn files_read(&self, name: &str, path: &str) -> RaworcResult<Vec<u8>> {
+        let res = self
+            .http
+            .get(self.build_url(&format!("agents/{}/files/read/{}", name, path)))
+            .headers(self.build_headers())
+            .send()
+            .await?;
+        if res.status().is_success() {
+            Ok(res.bytes().await?.to_vec())
+        } else {
+            self.map_error_text(res).await
+        }
+    }
+
+    pub async fn files_delete(&self, name: &str, path: &str) -> RaworcResult<Value> {
+        self.delete_json(&format!("agents/{}/files/delete/{}", name, path)).await
+    }
+
+    /* --------------------------- Agent Context (v0) ------------------------ */
+
+    pub async fn context_get(&self, name: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("agents/{}/context", name)).await
+    }
+
+    pub async fn context_clear(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/context/clear", name), &serde_json::json!({})).await
+    }
+
+    pub async fn context_compact(&self, name: &str) -> RaworcResult<Value> {
+        self.post_json(&format!("agents/{}/context/compact", name), &serde_json::json!({})).await
+    }
+
+    /* ------------------------ Published Agents (v0) ------------------------ */
+
+    pub async fn published_agents(&self) -> RaworcResult<Value> {
+        self.get_json("published/agents").await
+    }
+
+    pub async fn published_agent_get(&self, name: &str) -> RaworcResult<Value> {
+        self.get_json(&format!("published/agents/{}", name)).await
     }
 
     /* ----------------------- Sessions (space-scoped) ----------------------- */
@@ -372,7 +523,9 @@ impl RaworcClient {
 
     pub async fn set_secret(&self, space: &str, key: &str, value: &str) -> RaworcResult<Secret> {
         let req = CreateSecretRequest {
+            key_name: key.to_string(),
             value: value.to_string(),
+            description: None,
         };
         self.post_json(&format!("spaces/{}/secrets/{}", space, key), &req)
             .await
@@ -380,7 +533,8 @@ impl RaworcClient {
 
     pub async fn update_secret(&self, space: &str, key: &str, value: &str) -> RaworcResult<Secret> {
         let req = UpdateSecretRequest {
-            value: value.to_string(),
+            value: Some(value.to_string()),
+            description: None,
         };
         self.put_json(&format!("spaces/{}/secrets/{}", space, key), &req)
             .await
@@ -525,6 +679,22 @@ impl RaworcClient {
         .await
     }
 
+    async fn delete_json<T>(&self, path: &str) -> RaworcResult<T>
+    where
+        T: for<'de> serde::Deserialize<'de>,
+    {
+        self.with_retry(|| async {
+            let res = self
+                .http
+                .delete(self.build_url(path))
+                .headers(self.build_headers())
+                .send()
+                .await?;
+            self.handle_json(res).await
+        })
+        .await
+    }
+
     async fn handle_json<T>(&self, res: reqwest::Response) -> RaworcResult<T>
     where
         T: for<'de> serde::Deserialize<'de>,
@@ -561,19 +731,58 @@ impl RaworcClient {
         Fut: std::future::Future<Output = RaworcResult<T>>,
         T: Sized,
     {
-        match f().await {
-            Ok(v) => Ok(v),
-            Err(e) if matches!(e, RaworcError::AuthError(_)) => {
-                if let (Some(u), Some(p)) = (&self.username, &self.password) {
-                    let token = Self::login_once(&self.http, self.base_url.clone(), u, p, self.timeout).await?;
-                    let _ = token; // available if you want to persist externally
-                    f().await
-                } else {
-                    Err(e)
+        // Up to 4 attempts with simple exponential backoff for transient errors
+        let mut attempt: u32 = 0;
+        let max_attempts: u32 = 4;
+        loop {
+            attempt += 1;
+            match f().await {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    // Handle 401 re-auth once, then retry immediately
+                    if matches!(e, RaworcError::AuthError(_)) {
+                        if let (Some(u), Some(p)) = (&self.username, &self.password) {
+                            let _token = Self::login_once(&self.http, self.base_url.clone(), u, p, self.timeout).await?;
+                            // Retry once after re-auth without counting as another attempt
+                            match f().await {
+                                Ok(v) => return Ok(v),
+                                Err(e2) => {
+                                    // fall through to generic retry handling below
+                                    if !Self::is_transient(&e2) || attempt >= max_attempts {
+                                        return Err(e2);
+                                    } else {
+                                        Self::sleep_backoff(attempt).await;
+                                        continue;
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(e);
+                        }
+                    }
+
+                    if !Self::is_transient(&e) || attempt >= max_attempts {
+                        return Err(e);
+                    }
+                    Self::sleep_backoff(attempt).await;
                 }
             }
-            Err(e) => Err(e),
         }
+    }
+
+    fn is_transient(e: &RaworcError) -> bool {
+        match e {
+            RaworcError::HttpError(re) => re.is_timeout() || re.is_connect() || re.is_request(),
+            RaworcError::ApiError { status, .. } => matches!(status, 408 | 425 | 429 | 500 | 502 | 503 | 504),
+            _ => false,
+        }
+    }
+
+    async fn sleep_backoff(attempt: u32) {
+        // base 250ms, capped ~4s
+        let base_ms: u64 = 250;
+        let delay_ms = base_ms.saturating_mul(1u64 << (attempt.saturating_sub(1).min(4)));
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 
     async fn login_once(

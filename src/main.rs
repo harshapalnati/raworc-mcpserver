@@ -1,15 +1,31 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing_subscriber::fmt::writer::BoxMakeWriter;
+use tracing_subscriber::{fmt::writer::BoxMakeWriter, EnvFilter};
 use raworc_mcp::{Config, RaworcMcpServer};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // STDERR-only logging
-    tracing_subscriber::fmt()
-        .with_writer(BoxMakeWriter::new(std::io::stderr))
-        .init();
+    // Configurable structured logging
+    let env_filter = std::env::var("RUST_LOG")
+        .ok()
+        .or_else(|| std::env::var("LOG_LEVEL").ok())
+        .unwrap_or_else(|| "info".to_string());
+    let use_json = std::env::var("LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false);
+    if use_json {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::new(env_filter))
+            .json()
+            .with_writer(BoxMakeWriter::new(std::io::stderr))
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::new(env_filter))
+            .with_writer(BoxMakeWriter::new(std::io::stderr))
+            .init();
+    }
 
     // Create configuration from environment variables
     let config = Config {
@@ -24,22 +40,22 @@ async fn main() -> Result<()> {
             .and_then(|s| s.parse().ok()),
     };
 
+    // Surface a helpful warning if no credentials are configured
+    if config.auth_token.is_none() && (config.username.is_none() || config.password.is_none()) {
+        tracing::warn!("No RAWORC_AUTH_TOKEN or RAWORC_USERNAME/RAWORC_PASSWORD set; authenticated tools may fail");
+    }
+
     // Create MCP server
     let mut server = RaworcMcpServer::new(config)?;
     let mut stdin = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
 
     while let Some(line) = stdin.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
-        }
+        if line.trim().is_empty() { continue; }
 
         let msg: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
-            Err(e) => {
-                eprintln!("Bad JSON on stdin: {}", e);
-                continue;
-            }
+            Err(e) => { eprintln!("Bad JSON on stdin: {}", e); continue; }
         };
 
         let method = msg.get("method").and_then(Value::as_str);
@@ -68,259 +84,9 @@ async fn main() -> Result<()> {
             }
             
             Some("tools/list") => {
-                let tools = json!({
-                    "tools": [
-                        {
-                            "name": "health_check",
-                            "description": "Check Raworc API health",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        },
-                        {
-                            "name": "list_spaces",
-                            "description": "List all spaces",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        },
-                        {
-                            "name": "list_sessions",
-                            "description": "List all sessions in a space",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name (optional, uses default if not provided)"
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            "name": "create_session",
-                            "description": "Create a new session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name (optional, uses default if not provided)"
-                                    },
-                                    "metadata": {
-                                        "type": "object",
-                                        "description": "Additional metadata for the session"
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            "name": "get_session",
-                            "description": "Get session details",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    }
-                                },
-                                "required": ["session_id"]
-                            }
-                        },
-                        {
-                            "name": "send_message",
-                            "description": "Send a message to a session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    },
-                                    "content": {
-                                        "type": "string",
-                                        "description": "Message content"
-                                    }
-                                },
-                                "required": ["session_id", "content"]
-                            }
-                        },
-                        {
-                            "name": "get_messages",
-                            "description": "Get messages from a session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    },
-                                    "limit": {
-                                        "type": "number",
-                                        "description": "Maximum number of messages to retrieve"
-                                    }
-                                },
-                                "required": ["session_id"]
-                            }
-                        },
-                        {
-                            "name": "pause_session",
-                            "description": "Pause a session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    }
-                                },
-                                "required": ["session_id"]
-                            }
-                        },
-                        {
-                            "name": "resume_session",
-                            "description": "Resume a session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    }
-                                },
-                                "required": ["session_id"]
-                            }
-                        },
-                        {
-                            "name": "terminate_session",
-                            "description": "Terminate a session",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "session_id": {
-                                        "type": "string",
-                                        "description": "Session ID"
-                                    }
-                                },
-                                "required": ["session_id"]
-                            }
-                        },
-                        {
-                            "name": "list_agents",
-                            "description": "List agents in a space",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name (optional, uses default if not provided)"
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            "name": "get_agent_logs",
-                            "description": "Get logs for an agent",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name"
-                                    },
-                                    "agent_name": {
-                                        "type": "string",
-                                        "description": "Agent name"
-                                    }
-                                },
-                                "required": ["space", "agent_name"]
-                            }
-                        },
-                        {
-                            "name": "list_secrets",
-                            "description": "List secrets in a space",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name (optional, uses default if not provided)"
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            "name": "get_secret",
-                            "description": "Get a secret value",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name"
-                                    },
-                                    "key": {
-                                        "type": "string",
-                                        "description": "Secret key"
-                                    }
-                                },
-                                "required": ["space", "key"]
-                            }
-                        },
-                        {
-                            "name": "set_secret",
-                            "description": "Set a secret value",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name"
-                                    },
-                                    "key": {
-                                        "type": "string",
-                                        "description": "Secret key"
-                                    },
-                                    "value": {
-                                        "type": "string",
-                                        "description": "Secret value"
-                                    }
-                                },
-                                "required": ["space", "key", "value"]
-                            }
-                        },
-                        {
-                            "name": "delete_secret",
-                            "description": "Delete a secret",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "space": {
-                                        "type": "string",
-                                        "description": "Space name"
-                                    },
-                                    "key": {
-                                        "type": "string",
-                                        "description": "Secret key"
-                                    }
-                                },
-                                "required": ["space", "key"]
-                            }
-                        },
-                        {
-                            "name": "get_version",
-                            "description": "Get API version",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        }
-                    ]
-                });
                 if let Some(id) = id {
+                    let tools: Value = serde_json::from_str(raworc_mcp::CAPABILITIES)
+                        .unwrap_or_else(|_| json!({"tools": []}));
                     write_json(&mut stdout, json!({"jsonrpc":"2.0","id":id,"result":tools})).await?;
                 }
             }
@@ -369,4 +135,3 @@ async fn write_json(stdout: &mut tokio::io::Stdout, v: Value) -> Result<()> {
     stdout.flush().await?;
     Ok(())
 }
-

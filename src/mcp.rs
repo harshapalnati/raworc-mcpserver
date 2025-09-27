@@ -1,25 +1,22 @@
 use crate::client::RaworcClient;
 use crate::error::{RaworcError, RaworcResult};
-use crate::models::*; // ensure ToolCallContent has #[serde(rename = "type")] on content_type
+use crate::models::*; // ToolCallContent has #[serde(rename = "type")] on content_type
 use crate::Config;
 use serde_json::{self, Value};
-use std::collections::HashMap;
 use tracing::{debug, info};
 
-/// Raworc MCP Server
+/// Raworc MCP Server aligned to ra-hyp-1 REST API (v0)
 pub struct RaworcMcpServer {
     client: RaworcClient,
     config: Config,
 }
 
 impl RaworcMcpServer {
-    /// Create a new MCP server
     pub fn new(config: Config) -> RaworcResult<Self> {
         let client = RaworcClient::new(&config)?;
         Ok(Self { client, config })
     }
 
-    /// Initialize (authenticate lazily if user/pass provided and no token)
     pub async fn initialize(&mut self) -> RaworcResult<()> {
         if self.config.username.is_some()
             && self.config.password.is_some()
@@ -34,639 +31,288 @@ impl RaworcMcpServer {
         Ok(())
     }
 
-    /// Dispatch a tool call by name
     pub async fn handle_tool_call(
         &mut self,
         name: &str,
-        arguments: &Value
+        arguments: &Value,
     ) -> RaworcResult<ToolCallResponse> {
         debug!("Tool call: {name} args={arguments:?}");
-
-        // Lazy auth only when needed
         self.initialize().await?;
 
         let content = match name {
-            "list_sessions"   => self.handle_list_sessions(arguments).await?,
-            "create_session"  => self.handle_create_session(arguments).await?,
-            "get_session"     => self.handle_get_session(arguments).await?,
-            "send_message"    => self.handle_send_message(arguments).await?,
-            "get_messages"    => self.handle_get_messages(arguments).await?,
-            "pause_session"   => self.handle_pause_session(arguments).await?,
-            "resume_session"  => self.handle_resume_session(arguments).await?,
-            "terminate_session" => self.handle_terminate_session(arguments).await?,
-            "list_spaces"     => self.handle_list_spaces(arguments).await?,
-            "list_agents"     => self.handle_list_agents(arguments).await?,
-            "get_agent_logs"  => self.handle_get_agent_logs(arguments).await?,
-            "list_secrets"    => self.handle_list_secrets(arguments).await?,
-            "get_secret"      => self.handle_get_secret(arguments).await?,
-            "set_secret"      => self.handle_set_secret(arguments).await?,
-            "delete_secret"   => self.handle_delete_secret(arguments).await?,
-            "health_check"    => self.handle_health_check(arguments).await?,
-            "get_version"     => self.handle_get_version(arguments).await?,
-            _ => return Err(RaworcError::mcp_error(&format!("Unknown tool: {name}")))
-        };
+            // Version
+            "get_version" => self.handle_get_version(arguments).await?,
 
+            // Agents
+            "agents_list" => self.handle_agents_list(arguments).await?,
+            "agent_create" => self.handle_agent_create(arguments).await?,
+            "agent_get" => self.handle_agent_get(arguments).await?,
+            "agent_update" => self.handle_agent_update(arguments).await?,
+            "agent_delete" => self.handle_agent_delete(arguments).await?,
+            "agent_state_set" => self.handle_agent_state_set(arguments).await?,
+            "agent_busy" => self.handle_agent_busy(arguments).await?,
+            "agent_idle" => self.handle_agent_idle(arguments).await?,
+            "agent_sleep" => self.handle_agent_sleep(arguments).await?,
+            "agent_cancel" => self.handle_agent_cancel(arguments).await?,
+            "agent_wake" => self.handle_agent_wake(arguments).await?,
+            "agent_runtime" => self.handle_agent_runtime(arguments).await?,
+            "agent_remix" => self.handle_agent_remix(arguments).await?,
+            "agent_publish" => self.handle_agent_publish(arguments).await?,
+            "agent_unpublish" => self.handle_agent_unpublish(arguments).await?,
+
+            // Responses
+            "responses_list" => self.handle_responses_list(arguments).await?,
+            "response_create" => self.handle_response_create(arguments).await?,
+            "response_get" => self.handle_response_get(arguments).await?,
+            "response_update" => self.handle_response_update(arguments).await?,
+            "responses_count" => self.handle_responses_count(arguments).await?,
+
+            // Files
+            "files_list_root" => self.handle_files_list_root(arguments).await?,
+            "files_list_path" => self.handle_files_list_path(arguments).await?,
+            "files_metadata" => self.handle_files_metadata(arguments).await?,
+            "files_read" => self.handle_files_read(arguments).await?,
+            "files_delete" => self.handle_files_delete(arguments).await?,
+
+            // Context
+            "context_get" => self.handle_context_get(arguments).await?,
+            "context_clear" => self.handle_context_clear(arguments).await?,
+            "context_compact" => self.handle_context_compact(arguments).await?,
+
+            // Published
+            "published_agents_list" => self.handle_published_agents_list(arguments).await?,
+            "published_agent_get" => self.handle_published_agent_get(arguments).await?,
+
+            _ => return Err(RaworcError::mcp_error(&format!("Unknown tool: {name}"))),
+        };
         Ok(ToolCallResponse { content })
     }
 
-    // ---------- Helpers ----------
     #[inline]
     fn text_content<S: Into<String>>(s: S) -> Vec<ToolCallContent> {
-        vec![ToolCallContent {
-            content_type: "text".to_string(),
-            text: Some(s.into()),
-            image_url: None,
-        }]
+        vec![ToolCallContent { content_type: "text".to_string(), text: Some(s.into()), image_url: None }]
     }
 
-    // ---------- Tool handlers ----------
-
-    async fn handle_list_sessions(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let sessions = self.client.list_sessions(space).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&sessions)?))
-    }
-
-    async fn handle_create_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let metadata = arguments
-            .get("metadata")
-            .and_then(|v| v.as_object())
-            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<String, Value>>());
-        let session = self.client.create_session(space, metadata).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&session)?))
-    }
-
-    async fn handle_get_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let session = self.client.get_session(space, session_id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&session)?))
-    }
-
-    async fn handle_send_message(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let content = arguments
-            .get("content").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("content is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let message = self.client.send_message(space, session_id, content).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&message)?))
-    }
-
-    async fn handle_get_messages(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let limit = arguments.get("limit").and_then(|v| v.as_u64());
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let messages = self.client.get_messages(space, session_id, limit).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&messages)?))
-    }
-
-    async fn handle_pause_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        self.client.pause_session(space, session_id).await?;
-        Ok(Self::text_content("Session paused successfully"))
-    }
-
-    async fn handle_resume_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        self.client.resume_session(space, session_id).await?;
-        Ok(Self::text_content("Session resumed successfully"))
-    }
-
-    async fn handle_terminate_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments
-            .get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        self.client.terminate_session(space, session_id).await?;
-        Ok(Self::text_content("Session terminated successfully"))
-    }
-
-    async fn handle_list_spaces(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let spaces = self.client.list_spaces().await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&spaces)?))
-    }
-
-    async fn handle_list_agents(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let agents = self.client.list_agents(space).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&agents)?))
-    }
-
-    async fn handle_get_agent_logs(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        let logs = self.client.get_agent_logs(space, agent_name).await?;
-        Ok(Self::text_content(logs))
-    }
-
-    async fn handle_list_secrets(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let secrets = self.client.list_secrets(space).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&secrets)?))
-    }
-
-    async fn handle_get_secret(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let key = arguments.get("key").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("key is required"))?;
-        let secret = self.client.get_secret(space, key).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&secret)?))
-    }
-
-    async fn handle_set_secret(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let key = arguments.get("key").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("key is required"))?;
-        let value = arguments.get("value").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("value is required"))?;
-        let secret = self.client.set_secret(space, key, value).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&secret)?))
-    }
-
-    async fn handle_delete_secret(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let key = arguments.get("key").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("key is required"))?;
-        self.client.delete_secret(space, key).await?;
-        Ok(Self::text_content("Secret deleted successfully"))
-    }
-
-    async fn handle_health_check(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let health = self.client.health_check().await?;
-        Ok(Self::text_content(health))
-    }
-
+    // Version
     async fn handle_get_version(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let version = self.client.get_version().await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&version)?))
+        let v = self.client.ra_get_version().await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&v)?))
     }
 
-    // Service Accounts
-    async fn handle_list_service_accounts(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let accounts = self.client.list_service_accounts().await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&accounts)?))
+    // Agents
+    async fn handle_agents_list(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let q = arguments.get("q").and_then(|v| v.as_str());
+        let tags = arguments.get("tags").and_then(|v| v.as_str());
+        let state = arguments.get("state").and_then(|v| v.as_str());
+        let limit = arguments.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let page = arguments.get("page").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let offset = arguments.get("offset").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let res = self.client.agents_list(q, tags, state, limit, page, offset).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_create_service_account(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let user = arguments.get("user").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("user is required"))?;
-        let pass = arguments.get("pass").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("pass is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateServiceAccountRequest {
-            user: user.to_string(),
-            pass: pass.to_string(),
-            space,
-            description,
-        };
-        let account = self.client.create_service_account(&request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&account)?))
+    async fn handle_agent_create(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let body = arguments.clone();
+        let res = self.client.agent_create(&body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_get_service_account(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let account = self.client.get_service_account(id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&account)?))
+    async fn handle_agent_get(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_get(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_update_service_account(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let active = arguments.get("active").and_then(|v| v.as_bool());
-        
-        let request = UpdateServiceAccountRequest {
-            space,
-            description,
-            active,
-        };
-        let account = self.client.update_service_account(id, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&account)?))
+    async fn handle_agent_update(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let mut body = arguments.clone();
+        if let Some(map) = body.as_object_mut() { map.remove("name"); }
+        let res = self.client.agent_update(name, &body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_delete_service_account(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        self.client.delete_service_account(id).await?;
-        Ok(Self::text_content("Service account deleted successfully"))
+    async fn handle_agent_delete(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        self.client.agent_delete(name).await?;
+        Ok(Self::text_content("Agent deleted"))
     }
 
-    async fn handle_update_service_account_password(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let current_password = arguments.get("current_password").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("current_password is required"))?;
-        let new_password = arguments.get("new_password").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("new_password is required"))?;
-        
-        let request = UpdatePasswordRequest {
-            current_password: current_password.to_string(),
-            new_password: new_password.to_string(),
-        };
-        self.client.update_service_account_password(id, &request).await?;
-        Ok(Self::text_content("Password updated successfully"))
+    async fn handle_agent_state_set(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let state = arguments.get("state").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("state is required"))?;
+        let res = self.client.agent_set_state(name, state).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Roles
-    async fn handle_list_roles(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let roles = self.client.list_roles().await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&roles)?))
+    async fn handle_agent_busy(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_busy(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_create_role(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let rules_value = arguments.get("rules")
-            .ok_or_else(|| RaworcError::validation_error("rules is required"))?;
-        let rules: Vec<RoleRule> = serde_json::from_value(rules_value.clone())?;
-        
-        let request = CreateRoleRequest {
-            id: id.to_string(),
-            description,
-            rules,
-        };
-        let role = self.client.create_role(&request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&role)?))
+    async fn handle_agent_idle(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_idle(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_get_role(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let role = self.client.get_role(id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&role)?))
+    async fn handle_agent_sleep(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let delay_seconds = arguments.get("delay_seconds").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let note = arguments.get("note").and_then(|v| v.as_str());
+        let res = self.client.agent_sleep(name, delay_seconds, note).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_delete_role(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        self.client.delete_role(id).await?;
-        Ok(Self::text_content("Role deleted successfully"))
+    async fn handle_agent_cancel(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_cancel(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Role Bindings
-    async fn handle_list_role_bindings(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let bindings = self.client.list_role_bindings().await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&bindings)?))
+    async fn handle_agent_wake(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let prompt = arguments.get("prompt").and_then(|v| v.as_str());
+        let res = self.client.agent_wake(name, prompt).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_create_role_binding(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let subject = arguments.get("subject").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("subject is required"))?;
-        let role_ref = arguments.get("role_ref").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("role_ref is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateRoleBindingRequest {
-            subject: subject.to_string(),
-            role_ref: role_ref.to_string(),
-            space,
-        };
-        let binding = self.client.create_role_binding(&request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&binding)?))
+    async fn handle_agent_runtime(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_runtime(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_get_role_binding(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        let binding = self.client.get_role_binding(id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&binding)?))
+    async fn handle_agent_remix(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name (parent) is required"))?;
+        let mut body = arguments.clone();
+        if let Some(map) = body.as_object_mut() { map.remove("name"); }
+        let res = self.client.agent_remix(name, &body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_delete_role_binding(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let id = arguments.get("id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("id is required"))?;
-        self.client.delete_role_binding(id).await?;
-        Ok(Self::text_content("Role binding deleted successfully"))
+    async fn handle_agent_publish(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let mut body = arguments.clone();
+        if let Some(map) = body.as_object_mut() { map.remove("name"); }
+        let res = self.client.agent_publish(name, &body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Additional space methods
-    async fn handle_create_space(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let name = arguments.get("name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("name is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let settings = arguments.get("settings").and_then(|v| v.as_object())
-            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<String, Value>>());
-        
-        let request = CreateSpaceRequest {
-            name: name.to_string(),
-            description,
-            settings,
-        };
-        let space = self.client.create_space(&request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&space)?))
+    async fn handle_agent_unpublish(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.agent_unpublish(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_get_space(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let name = arguments.get("name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("name is required"))?;
-        let space = self.client.get_space(name).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&space)?))
+    // Responses
+    async fn handle_responses_list(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let limit = arguments.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let offset = arguments.get("offset").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let res = self.client.responses_list(agent, limit, offset).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_update_space(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let name = arguments.get("name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("name is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let settings = arguments.get("settings").and_then(|v| v.as_object())
-            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<String, Value>>());
-        
-        let request = UpdateSpaceRequest {
-            description,
-            settings,
-        };
-        let space = self.client.update_space(name, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&space)?))
+    async fn handle_response_create(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let mut body = arguments.clone();
+        if let Some(map) = body.as_object_mut() { map.remove("agent"); }
+        let res = self.client.response_create(agent, &body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_delete_space(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let name = arguments.get("name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("name is required"))?;
-        self.client.delete_space(name).await?;
-        Ok(Self::text_content("Space deleted successfully"))
+    async fn handle_response_get(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let id = arguments.get("id").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("id is required"))?;
+        let res = self.client.response_get(agent, id).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Additional session methods
-    async fn handle_update_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let metadata = arguments.get("metadata").and_then(|v| v.as_object())
-            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<String, Value>>());
-        
-        let request = UpdateSessionRequest {
-            space: space.map(|s| s.to_string()),
-            metadata,
-        };
-        let session = self.client.update_session(space, session_id, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&session)?))
+    async fn handle_response_update(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let id = arguments.get("id").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("id is required"))?;
+        let mut body = arguments.clone();
+        if let Some(map) = body.as_object_mut() { map.remove("agent"); map.remove("id"); }
+        let res = self.client.response_update(agent, id, &body).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_update_session_state(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let state_str = arguments.get("state").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("state is required"))?;
-        
-        let state = match state_str {
-            "INIT" => SessionState::Init,
-            "RUNNING" => SessionState::Running,
-            "PAUSED" => SessionState::Paused,
-            "SUSPENDED" => SessionState::Suspended,
-            "TERMINATED" => SessionState::Terminated,
-            "IDLE" => SessionState::Idle,
-            "CLOSED" => SessionState::Closed,
-            _ => return Err(RaworcError::validation_error("Invalid session state")),
-        };
-        
-        self.client.update_session_state(space, session_id, state).await?;
-        Ok(Self::text_content("Session state updated successfully"))
+    async fn handle_responses_count(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let res = self.client.responses_count(agent).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_close_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        self.client.close_session(session_id).await?;
-        Ok(Self::text_content("Session closed successfully"))
+    // Files
+    async fn handle_files_list_root(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let offset = arguments.get("offset").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let limit = arguments.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let res = self.client.files_list_root(agent, offset, limit).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_restore_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        self.client.restore_session(session_id).await?;
-        Ok(Self::text_content("Session restored successfully"))
+    async fn handle_files_list_path(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let path = arguments.get("path").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("path is required"))?;
+        let offset = arguments.get("offset").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let limit = arguments.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
+        let res = self.client.files_list_path(agent, path, offset, limit).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_remix_session(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateSessionRequest {
-            space,
-            metadata: None,
-        };
-        let session = self.client.remix_session(session_id, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&session)?))
+    async fn handle_files_metadata(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let path = arguments.get("path").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("path is required"))?;
+        let res = self.client.files_metadata(agent, path).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Additional message methods
-    async fn handle_get_message_count(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        let count = self.client.get_message_count(space, session_id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&count)?))
+    async fn handle_files_read(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let path = arguments.get("path").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("path is required"))?;
+        let bytes = self.client.files_read(agent, path).await?;
+        let b64 = base64::encode(bytes);
+        Ok(Self::text_content(format!("base64: {}", b64)))
     }
 
-    async fn handle_clear_messages(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let session_id = arguments.get("session_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("session_id is required"))?;
-        let space = arguments.get("space").and_then(|v| v.as_str());
-        self.client.clear_messages(space, session_id).await?;
-        Ok(Self::text_content("Messages cleared successfully"))
+    async fn handle_files_delete(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let path = arguments.get("path").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("path is required"))?;
+        let res = self.client.files_delete(agent, path).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    // Additional agent methods
-    async fn handle_create_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let name = arguments.get("name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("name is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let purpose = arguments.get("purpose").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let source_repo = arguments.get("source_repo").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let source_branch = arguments.get("source_branch").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateAgentRequest {
-            name: name.to_string(),
-            description,
-            purpose,
-            source_repo,
-            source_branch,
-            image: None,
-            command: None,
-            env: None,
-            resources: None,
-        };
-        let agent = self.client.create_agent(space, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&agent)?))
+    // Context
+    async fn handle_context_get(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let res = self.client.context_get(agent).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_get_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        let agent = self.client.get_agent(space, agent_name).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&agent)?))
+    async fn handle_context_clear(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let res = self.client.context_clear(agent).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_update_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let purpose = arguments.get("purpose").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = UpdateAgentRequest {
-            description,
-            purpose,
-            source_repo: None,
-            source_branch: None,
-            image: None,
-            command: None,
-            env: None,
-            resources: None,
-        };
-        let agent = self.client.update_agent(space, agent_name, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&agent)?))
+    async fn handle_context_compact(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let agent = arguments.get("agent").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("agent is required"))?;
+        let res = self.client.context_compact(agent).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_delete_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        self.client.delete_agent(space, agent_name).await?;
-        Ok(Self::text_content("Agent deleted successfully"))
+    // Published
+    async fn handle_published_agents_list(&self, _arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let res = self.client.published_agents().await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 
-    async fn handle_update_agent_status(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        let status_str = arguments.get("status").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("status is required"))?;
-        
-        let status = match status_str {
-            "active" => AgentStatus::Active,
-            "inactive" => AgentStatus::Inactive,
-            "running" => AgentStatus::Running,
-            "stopped" => AgentStatus::Stopped,
-            "error" => AgentStatus::Error,
-            _ => return Err(RaworcError::validation_error("Invalid agent status")),
-        };
-        
-        let request = UpdateAgentStatusRequest { status };
-        self.client.update_agent_status(space, agent_name, &request).await?;
-        Ok(Self::text_content("Agent status updated successfully"))
-    }
-
-    async fn handle_deploy_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        self.client.deploy_agent(space, agent_name).await?;
-        Ok(Self::text_content("Agent deployed successfully"))
-    }
-
-    async fn handle_stop_agent(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agent_name = arguments.get("agent_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("agent_name is required"))?;
-        self.client.stop_agent(space, agent_name).await?;
-        Ok(Self::text_content("Agent stopped successfully"))
-    }
-
-    async fn handle_list_running_agents(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let agents = self.client.list_running_agents(space).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&agents)?))
-    }
-
-    // Additional secret methods
-    async fn handle_create_secret(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let key_name = arguments.get("key_name").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("key_name is required"))?;
-        let value = arguments.get("value").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("value is required"))?;
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateSecretRequest {
-            key_name: key_name.to_string(),
-            value: value.to_string(),
-            description,
-        };
-        let secret = self.client.create_secret(space, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&secret)?))
-    }
-
-    async fn handle_update_secret(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let key = arguments.get("key").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("key is required"))?;
-        let value = arguments.get("value").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let description = arguments.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = UpdateSecretRequest {
-            value,
-            description,
-        };
-        let secret = self.client.update_secret(space, key, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&secret)?))
-    }
-
-    // Build methods
-    async fn handle_create_build(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let dockerfile = arguments.get("dockerfile").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let context = arguments.get("context").and_then(|v| v.as_str()).map(|s| s.to_string());
-        
-        let request = CreateBuildRequest {
-            dockerfile,
-            context,
-        };
-        let build = self.client.create_build(space, &request).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&build)?))
-    }
-
-    async fn handle_get_latest_build(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let build = self.client.get_latest_build(space).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&build)?))
-    }
-
-    async fn handle_get_build(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
-        let space = arguments.get("space").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("space is required"))?;
-        let build_id = arguments.get("build_id").and_then(|v| v.as_str())
-            .ok_or_else(|| RaworcError::validation_error("build_id is required"))?;
-        let build = self.client.get_build(space, build_id).await?;
-        Ok(Self::text_content(serde_json::to_string_pretty(&build)?))
+    async fn handle_published_agent_get(&self, arguments: &Value) -> RaworcResult<Vec<ToolCallContent>> {
+        let name = arguments.get("name").and_then(|v| v.as_str()).ok_or_else(|| RaworcError::validation_error("name is required"))?;
+        let res = self.client.published_agent_get(name).await?;
+        Ok(Self::text_content(serde_json::to_string_pretty(&res)?))
     }
 }
+
