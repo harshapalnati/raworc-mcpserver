@@ -2,15 +2,16 @@
   "name": "@raworc/mcp-server",
   "version": "0.1.0",
   "description": "Model Context Protocol server for Raworc - Production-ready MCP server for Raworc cloud platform",
-  "main": "index.js",
+  "type": "module",
+  "module": "src/index.ts",
   "bin": {
     "raworc-mcp": "./bin/raworc-mcp.js"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
-    "build": "cargo build --release",
-    "test": "cargo test",
-    "clean": "cargo clean"
+    "postinstall": "node scripts/postinstall.cjs",
+    "build": "smithery build",
+    "dev": "smithery dev",
+    "test": "echo 'no tests'"
   },
   "keywords": [
     "mcp",
@@ -51,5 +52,12 @@
   "publishConfig": {
     "access": "public"
   },
-  "prepublishOnly": "npm run build"
+  "devDependencies": {
+    "@smithery/cli": "^1.4.2",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "zod": "^3.25.46"
+  }
 }
