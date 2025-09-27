@@ -8,7 +8,6 @@
     "raworc-mcp": "./bin/raworc-mcp.js"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.cjs",
     "build": "smithery build",
     "dev": "smithery dev",
     "test": "echo 'no tests'"
