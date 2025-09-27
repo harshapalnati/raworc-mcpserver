@@ -4,6 +4,15 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// Skip building in CI/Smithery TypeScript deployments or when explicitly requested
+const isCI = process.env.CI === 'true' || process.env.CI === '1';
+const skipRust = !!process.env.SKIP_RUST_BUILD || process.env.SMITHERY_RUNTIME === 'typescript' || process.env.SMITHERY === 'true';
+
+if (isCI || skipRust) {
+  console.log('ℹ️  Skipping Rust build (CI/Smithery or SKIP_RUST_BUILD set).');
+  process.exit(0);
+}
+
 console.log('🚀 Building Raworc MCP Server...');
 
 // Check if Rust is available
@@ -44,6 +53,14 @@ function buildBinary() {
 // Main function
 async function main() {
   try {
+    // On Windows, proactively kill any running raworc-mcp.exe to avoid file lock (os error 5)
+    if (process.platform === 'win32') {
+      try {
+        const killer = spawn('taskkill', ['/F', '/IM', 'raworc-mcp.exe'], { stdio: 'ignore' });
+        killer.on('close', () => {});
+      } catch (_) {}
+    }
+
     // Check if Rust is installed
     const hasRust = await checkRust();
     if (!hasRust) {
