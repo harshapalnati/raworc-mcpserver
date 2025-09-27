@@ -1,0 +1,57 @@
+runtime: "container"
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+startCommand:
+  type: "http"
+  # Optional: define session configuration schema that users can provide
+  configSchema:
+    type: object
+    properties:
+      apiKey:
+        type: string
+        description: "Raworc API token. If unset, RAWORC_AUTH_TOKEN env is used."
+      apiUrl:
+        type: string
+        description: "Override Raworc API base URL"
+      defaultSpace:
+        type: string
+        description: "Default space context"
+      timeoutSeconds:
+        type: integer
+        description: "Request timeout in seconds"
+    required: []
+  exampleConfig:
+    apiKey: "ra_token_..."
+    apiUrl: "https://api.remoteagent.com/api/v0"
+    defaultSpace: "production"
+    timeoutSeconds: 30
+runtime: "container"
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+startCommand:
+  type: "http"
+  # Smithery will set PORT=8081. Our server reads env and binds PORT.
+  configSchema:
+    type: "object"
+    properties:
+      RAWORC_API_URL:
+        type: "string"
+        description: "Raworc API base URL (e.g., https://ra-hyp-1.raworc.com/api/v0)"
+      RAWORC_AUTH_TOKEN:
+        type: "string"
+        description: "Bearer token for Raworc API"
+      RAWORC_DEFAULT_SPACE:
+        type: "string"
+        description: "Default space (optional)"
+      LOG_LEVEL:
+        type: "string"
+        description: "Log level (info, debug, trace)"
+    required: ["RAWORC_API_URL", "RAWORC_AUTH_TOKEN"]
+  exampleConfig:
+    RAWORC_API_URL: "https://ra-hyp-1.raworc.com/api/v0"
+    RAWORC_AUTH_TOKEN: "<your-token>"
+    RAWORC_DEFAULT_SPACE: "<your-space>"
+    LOG_LEVEL: "info"
+
