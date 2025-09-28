@@ -2,11 +2,20 @@
 
 A production-ready Model Context Protocol (MCP) server for Raworc, enabling AI assistants to seamlessly interact with Raworc's agent runtime platform.
 
+[![smithery badge](https://smithery.ai/badge/@harshapalnati/raworc-mcpserver)](https://smithery.ai/server/@harshapalnati/raworc-mcpserver)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-blue.svg)](https://www.rust-lang.org/)
 [![npm](https://img.shields.io/badge/npm-@raworc/mcp--server-red.svg)](https://www.npmjs.com/package/@raworc/mcp-server)
 
 ## 🚀 Quick Start
+
+### Installing via Smithery
+
+To install raworc-mcpserver automatically via [Smithery](https://smithery.ai/server/@harshapalnati/raworc-mcpserver):
+
+```bash
+npx -y @smithery/cli install @harshapalnati/raworc-mcpserver
+```
 
 ### Option 1: Install via npx (Recommended)
 
