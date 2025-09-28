@@ -52,7 +52,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "@smithery/cli": "^1.4.2",
+    "@smithery/cli": "latest",
     "typescript": "^5.6.3"
   },
   "dependencies": {
