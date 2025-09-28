@@ -1,0 +1,22 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
+    "name": "ai.smithery/harshapalnati-raworc-mcpserver",
+    "title": "Raworc MCP Server",
+    "version": "0.1.0",
+    "description": "Production-ready Model Context Protocol server for the Raworc cloud platform",
+    "remotes": [
+      {
+        "transport": {
+          "type": "sse",
+          "url": "https://<your-domain>/mcp"
+        },
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer ${RAWORC_AUTH_TOKEN}"
+          }
+        ]
+      }
+    ]
+  }
+  
