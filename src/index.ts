@@ -283,7 +283,7 @@ export default function createServer({ config }: { config: Cfg }) {
     "files_list_path",
     { description: "List children under relative path", inputSchema: { name: z.string(), path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional() } },
     async ({ name, path, offset, limit }) =>
-      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list/${encodeURIComponent(path)}` , { query: { offset, limit } }))
+      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list/${encodeURIComponent(path)}`, { query: { offset, limit } }))
   );
 
   server.registerTool(
