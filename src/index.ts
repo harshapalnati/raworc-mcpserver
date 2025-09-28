@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -7,9 +8,8 @@ export const configSchema = z.object({
   apiUrl: z
     .string()
     .url()
-    .default("https://api.remoteagent.com/api/v0")
+    .default("https://ra-hyp-1.raworc.com")
     .describe("Raworc API base URL"),
-  defaultSpace: z.string().optional().describe("Default Raworc space"),
   timeoutSeconds: z
     .number()
     .int()
@@ -80,37 +80,45 @@ function asTextContent(data: unknown): { content: { type: "text"; text: string }
 export default function createServer({ config }: { config: Cfg }) {
   const cfg: Cfg = {
     apiKey: config.apiKey || process.env.RAWORC_AUTH_TOKEN,
-    apiUrl: config.apiUrl || process.env.RAWORC_API_URL || "https://api.remoteagent.com/api/v0",
-    defaultSpace: config.defaultSpace || process.env.RAWORC_DEFAULT_SPACE,
+    apiUrl: config.apiUrl || process.env.RAWORC_API_URL || "https://ra-hyp-1.raworc.com",
     timeoutSeconds: config.timeoutSeconds || (process.env.RAWORC_TIMEOUT ? Number(process.env.RAWORC_TIMEOUT) : 30),
   };
 
   const server = new McpServer({ name: "raworc-mcp", version: "0.1.0" });
 
   // Version
-  server.tool("version", {
-    description: "Get API version",
-    parameters: z.object({}).strict(),
-    execute: async () => asTextContent(await http(cfg, "GET", "/api/v0/version")),
-  });
+  server.registerTool(
+    "version",
+    { description: "Get API version", inputSchema: {} },
+    async () => asTextContent(await http(cfg, "GET", "/api/v0/version"))
+  );
 
   // Agents - list
-  server.tool("agents_list", {
-    description: "List/search agents",
-    parameters: z
-      .object({ q: z.string().optional(), tags: z.string().optional(), state: z.string().optional(), limit: z.number().int().optional(), page: z.number().int().optional(), offset: z.number().int().optional() })
-      .strict(),
-    execute: async ({ q, tags, state, limit, page, offset }) =>
+  server.registerTool(
+    "agents_list",
+    {
+      description: "List/search agents",
+      inputSchema: {
+        q: z.string().optional(),
+        tags: z.string().optional(),
+        state: z.string().optional(),
+        limit: z.number().int().optional(),
+        page: z.number().int().optional(),
+        offset: z.number().int().optional(),
+      },
+    },
+    async ({ q, tags, state, limit, page, offset }) =>
       asTextContent(
         await http(cfg, "GET", "/api/v0/agents", { query: { q, tags, state, limit, page, offset } })
-      ),
-  });
+      )
+  );
 
   // Agents - create
-  server.tool("agents_create", {
-    description: "Create agent",
-    parameters: z
-      .object({
+  server.registerTool(
+    "agents_create",
+    {
+      description: "Create agent",
+      inputSchema: {
         name: z.string(),
         description: z.string().nullable().optional(),
         metadata: z.record(z.any()).optional(),
@@ -121,213 +129,218 @@ export default function createServer({ config }: { config: Cfg }) {
         prompt: z.string().nullable().optional(),
         idle_timeout_seconds: z.number().int().nullable().optional(),
         busy_timeout_seconds: z.number().int().nullable().optional(),
-      })
-      .strict(),
-    execute: async (args) => asTextContent(await http(cfg, "POST", "/api/v0/agents", { body: args })),
-  });
+      },
+    },
+    async (args) => asTextContent(await http(cfg, "POST", "/api/v0/agents", { body: args }))
+  );
 
   // Agents - get
-  server.tool("agents_get", {
-    description: "Get agent by name",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}`)),
-  });
+  server.registerTool(
+    "agents_get",
+    { description: "Get agent by name", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}`))
+  );
 
   // Agents - update
-  server.tool("agents_update", {
-    description: "Update agent",
-    parameters: z
-      .object({
+  server.registerTool(
+    "agents_update",
+    {
+      description: "Update agent",
+      inputSchema: {
         name: z.string(),
         metadata: z.record(z.any()).nullable().optional(),
         description: z.string().nullable().optional(),
         tags: z.array(z.string()).nullable().optional(),
         idle_timeout_seconds: z.number().int().nullable().optional(),
         busy_timeout_seconds: z.number().int().nullable().optional(),
-      })
-      .strict(),
-    execute: async ({ name, ...rest }) =>
-      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}`, { body: rest })),
-  });
+      },
+    },
+    async ({ name, ...rest }) =>
+      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}`, { body: rest }))
+  );
 
   // Agents - state
-  server.tool("agents_update_state", {
-    description: "Update agent state",
-    parameters: z.object({ name: z.string(), state: z.string() }).strict(),
-    execute: async ({ name, state }) =>
-      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}/state`, { body: { state } })),
-  });
+  server.registerTool(
+    "agents_update_state",
+    { description: "Update agent state", inputSchema: { name: z.string(), state: z.string() } },
+    async ({ name, state }) =>
+      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}/state`, { body: { state } }))
+  );
 
-  server.tool("agents_busy", {
-    description: "Set agent busy",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/busy`)),
-  });
+  server.registerTool(
+    "agents_busy",
+    { description: "Set agent busy", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/busy`))
+  );
 
-  server.tool("agents_idle", {
-    description: "Set agent idle",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/idle`)),
-  });
+  server.registerTool(
+    "agents_idle",
+    { description: "Set agent idle", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/idle`))
+  );
 
-  server.tool("agents_sleep", {
-    description: "Schedule agent sleep",
-    parameters: z.object({ name: z.string(), delay_seconds: z.number().int().nullable().optional(), note: z.string().nullable().optional() }).strict(),
-    execute: async ({ name, delay_seconds, note }) =>
-      asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/sleep`, { body: { delay_seconds, note } })),
-  });
+  server.registerTool(
+    "agents_sleep",
+    {
+      description: "Schedule agent sleep",
+      inputSchema: { name: z.string(), delay_seconds: z.number().int().nullable().optional(), note: z.string().nullable().optional() },
+    },
+    async ({ name, delay_seconds, note }) =>
+      asTextContent(
+        await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/sleep`, { body: { delay_seconds, note } })
+      )
+  );
 
-  server.tool("agents_cancel", {
-    description: "Cancel most recent pending/processing",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/cancel`)),
-  });
+  server.registerTool(
+    "agents_cancel",
+    { description: "Cancel most recent pending/processing", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/cancel`))
+  );
 
-  server.tool("agents_wake", {
-    description: "Wake agent (optional prompt)",
-    parameters: z.object({ name: z.string(), prompt: z.string().nullable().optional() }).strict(),
-    execute: async ({ name, prompt }) =>
-      asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/wake`, { body: { prompt } })),
-  });
+  server.registerTool(
+    "agents_wake",
+    { description: "Wake agent (optional prompt)", inputSchema: { name: z.string(), prompt: z.string().nullable().optional() } },
+    async ({ name, prompt }) =>
+      asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/wake`, { body: { prompt } }))
+  );
 
-  server.tool("agents_runtime", {
-    description: "Get total runtime across sessions",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/runtime`)),
-  });
+  server.registerTool(
+    "agents_runtime",
+    { description: "Get total runtime across sessions", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/runtime`))
+  );
 
-  server.tool("agents_remix", {
-    description: "Remix agent",
-    parameters: z
-      .object({ name: z.string(), new_name: z.string(), metadata: z.record(z.any()).nullable().optional(), code: z.boolean().optional(), secrets: z.boolean().optional(), content: z.boolean().optional(), prompt: z.string().nullable().optional() })
-      .strict(),
-    execute: async ({ name, new_name, ...rest }) =>
-      asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/remix`, { body: { name: new_name, ...rest } })),
-  });
+  server.registerTool(
+    "agents_remix",
+    {
+      description: "Remix agent",
+      inputSchema: { name: z.string(), new_name: z.string(), metadata: z.record(z.any()).nullable().optional(), code: z.boolean().optional(), secrets: z.boolean().optional(), content: z.boolean().optional(), prompt: z.string().nullable().optional() },
+    },
+    async ({ name, new_name, ...rest }) =>
+      asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/remix`, { body: { name: new_name, ...rest } }))
+  );
 
-  server.tool("agents_publish", {
-    description: "Publish agent",
-    parameters: z.object({ name: z.string(), code: z.boolean().optional(), secrets: z.boolean().optional(), content: z.boolean().optional() }).strict(),
-    execute: async ({ name, ...rest }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/publish`, { body: rest })),
-  });
+  server.registerTool(
+    "agents_publish",
+    { description: "Publish agent", inputSchema: { name: z.string(), code: z.boolean().optional(), secrets: z.boolean().optional(), content: z.boolean().optional() } },
+    async ({ name, ...rest }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/publish`, { body: rest }))
+  );
 
-  server.tool("agents_unpublish", {
-    description: "Unpublish agent",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/unpublish`)),
-  });
+  server.registerTool(
+    "agents_unpublish",
+    { description: "Unpublish agent", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/unpublish`))
+  );
 
-  server.tool("agents_delete", {
-    description: "Delete agent",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "DELETE", `/api/v0/agents/${encodeURIComponent(name)}`)),
-  });
+  server.registerTool(
+    "agents_delete",
+    { description: "Delete agent", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "DELETE", `/api/v0/agents/${encodeURIComponent(name)}`))
+  );
 
   // Responses
-  server.tool("responses_list", {
-    description: "List responses for agent",
-    parameters: z.object({ name: z.string(), limit: z.number().int().optional(), offset: z.number().int().optional() }).strict(),
-    execute: async ({ name, limit, offset }) =>
-      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses`, { query: { limit, offset } })),
-  });
+  server.registerTool(
+    "responses_list",
+    { description: "List responses for agent", inputSchema: { name: z.string(), limit: z.number().int().optional(), offset: z.number().int().optional() } },
+    async ({ name, limit, offset }) =>
+      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses`, { query: { limit, offset } }))
+  );
 
-  server.tool("responses_create", {
-    description: "Create a response (user input)",
-    parameters: z
-      .object({ name: z.string(), input: z.any(), background: z.boolean().optional() })
-      .strict(),
-    execute: async ({ name, ...body }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/responses`, { body })),
-  });
+  server.registerTool(
+    "responses_create",
+    { description: "Create a response (user input)", inputSchema: { name: z.string(), input: z.any(), background: z.boolean().optional() } },
+    async ({ name, ...body }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/responses`, { body }))
+  );
 
-  server.tool("responses_get", {
-    description: "Get response by id",
-    parameters: z.object({ name: z.string(), id: z.string() }).strict(),
-    execute: async ({ name, id }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses/${encodeURIComponent(id)}`)),
-  });
+  server.registerTool(
+    "responses_get",
+    { description: "Get response by id", inputSchema: { name: z.string(), id: z.string() } },
+    async ({ name, id }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses/${encodeURIComponent(id)}`))
+  );
 
-  server.tool("responses_update", {
-    description: "Update response",
-    parameters: z.object({ name: z.string(), id: z.string(), status: z.string().optional(), input: z.any().optional(), output: z.any().optional() }).strict(),
-    execute: async ({ name, id, ...rest }) =>
-      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}/responses/${encodeURIComponent(id)}`, { body: rest })),
-  });
+  server.registerTool(
+    "responses_update",
+    { description: "Update response", inputSchema: { name: z.string(), id: z.string(), status: z.string().optional(), input: z.any().optional(), output: z.any().optional() } },
+    async ({ name, id, ...rest }) =>
+      asTextContent(await http(cfg, "PUT", `/api/v0/agents/${encodeURIComponent(name)}/responses/${encodeURIComponent(id)}`, { body: rest }))
+  );
 
-  server.tool("responses_count", {
-    description: "Get response count",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses/count`)),
-  });
+  server.registerTool(
+    "responses_count",
+    { description: "Get response count", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/responses/count`))
+  );
 
   // Files
-  server.tool("files_list_root", {
-    description: "List /agent root",
-    parameters: z.object({ name: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional() }).strict(),
-    execute: async ({ name, offset, limit }) =>
-      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list`, { query: { offset, limit } })),
-  });
+  server.registerTool(
+    "files_list_root",
+    { description: "List /agent root", inputSchema: { name: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional() } },
+    async ({ name, offset, limit }) =>
+      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list`, { query: { offset, limit } }))
+  );
 
-  server.tool("files_list_path", {
-    description: "List children under relative path",
-    parameters: z.object({ name: z.string(), path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional() }).strict(),
-    execute: async ({ name, path, offset, limit }) =>
-      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list/${encodeURIComponent(path)}`, { query: { offset, limit } })),
-  });
+  server.registerTool(
+    "files_list_path",
+    { description: "List children under relative path", inputSchema: { name: z.string(), path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional() } },
+    async ({ name, path, offset, limit }) =>
+      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/list/${encodeURIComponent(path)}` , { query: { offset, limit } }))
+  );
 
-  server.tool("files_metadata", {
-    description: "Get file/directory metadata",
-    parameters: z.object({ name: z.string(), path: z.string() }).strict(),
-    execute: async ({ name, path }) =>
-      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/metadata/${encodeURIComponent(path)}`)),
-  });
+  server.registerTool(
+    "files_metadata",
+    { description: "Get file/directory metadata", inputSchema: { name: z.string(), path: z.string() } },
+    async ({ name, path }) =>
+      asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/metadata/${encodeURIComponent(path)}`))
+  );
 
-  server.tool("files_read", {
-    description: "Read file bytes (base64)",
-    parameters: z.object({ name: z.string(), path: z.string() }).strict(),
-    execute: async ({ name, path }) => {
+  server.registerTool(
+    "files_read",
+    { description: "Read file bytes (base64)", inputSchema: { name: z.string(), path: z.string() } },
+    async ({ name, path }) => {
       const bytes = (await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/files/read/${encodeURIComponent(path)}`, { raw: true })) as Uint8Array;
       const b64 = Buffer.from(bytes).toString("base64");
       return asTextContent({ base64: b64 });
-    },
-  });
+    }
+  );
 
-  server.tool("files_delete", {
-    description: "Delete file or empty directory",
-    parameters: z.object({ name: z.string(), path: z.string() }).strict(),
-    execute: async ({ name, path }) =>
-      asTextContent(await http(cfg, "DELETE", `/api/v0/agents/${encodeURIComponent(name)}/files/delete/${encodeURIComponent(path)}`)),
-  });
+  server.registerTool(
+    "files_delete",
+    { description: "Delete file or empty directory", inputSchema: { name: z.string(), path: z.string() } },
+    async ({ name, path }) =>
+      asTextContent(await http(cfg, "DELETE", `/api/v0/agents/${encodeURIComponent(name)}/files/delete/${encodeURIComponent(path)}`))
+  );
 
   // Context
-  server.tool("context_get", {
-    description: "Get context usage",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/context`)),
-  });
+  server.registerTool(
+    "context_get",
+    { description: "Get context usage", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/agents/${encodeURIComponent(name)}/context`))
+  );
 
-  server.tool("context_clear", {
-    description: "Clear context (set new cutoff)",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/context/clear`)),
-  });
+  server.registerTool(
+    "context_clear",
+    { description: "Clear context (set new cutoff)", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/context/clear`))
+  );
 
-  server.tool("context_compact", {
-    description: "Compact context via LLM",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/context/compact`)),
-  });
+  server.registerTool(
+    "context_compact",
+    { description: "Compact context via LLM", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "POST", `/api/v0/agents/${encodeURIComponent(name)}/context/compact`))
+  );
 
   // Published agents (public)
-  server.tool("published_agents_list", {
-    description: "List all published agents",
-    parameters: z.object({}).strict(),
-    execute: async () => asTextContent(await http(cfg, "GET", "/api/v0/published/agents")),
-  });
+  server.registerTool(
+    "published_agents_list",
+    { description: "List all published agents", inputSchema: {} },
+    async () => asTextContent(await http(cfg, "GET", "/api/v0/published/agents"))
+  );
 
-  server.tool("published_agents_get", {
-    description: "Get published agent by name",
-    parameters: z.object({ name: z.string() }).strict(),
-    execute: async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/published/agents/${encodeURIComponent(name)}`)),
-  });
+  server.registerTool(
+    "published_agents_get",
+    { description: "Get published agent by name", inputSchema: { name: z.string() } },
+    async ({ name }) => asTextContent(await http(cfg, "GET", `/api/v0/published/agents/${encodeURIComponent(name)}`))
+  );
 
   return server.server;
 }

@@ -35,6 +35,10 @@ wiremock = "0.5"
 name = "raworc-mcp"
 path = "src/main.rs"
 
+[[bin]]
+name = "mcp-server-endpoint"
+path = "src/bin/mcp_server_endpoint.rs"
+
 [lib]
 name = "raworc_mcp"
 path = "src/lib.rs"
